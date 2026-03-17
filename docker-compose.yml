@@ -90,6 +90,7 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       STRIPE_MONTHLY_PRICE_ID: ${STRIPE_MONTHLY_PRICE_ID}
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM}
+      AUTH_RATE_LIMIT_RPM: ${AUTH_RATE_LIMIT_RPM}
     depends_on:
       postgres:
         condition: service_healthy
