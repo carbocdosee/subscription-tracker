@@ -14,7 +14,7 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-class InMemoryRateLimiter(private val defaultLimit: Int, val authLimit: Int = 10) {
+class InMemoryRateLimiter(private val defaultLimit: Int, val authLimit: Int = 10, val exportLimit: Int = 5) {
     private data class Window(val minuteEpoch: Long, val count: AtomicInteger)
 
     private val windows = ConcurrentHashMap<String, Window>()
@@ -67,7 +67,7 @@ class RateLimitPluginConfig {
 }
 
 fun Application.configureRateLimiting(rateLimitConfig: RateLimitConfig): InMemoryRateLimiter {
-    val limiter = InMemoryRateLimiter(rateLimitConfig.requestsPerMinute, rateLimitConfig.authRequestsPerMinute)
+    val limiter = InMemoryRateLimiter(rateLimitConfig.requestsPerMinute, rateLimitConfig.authRequestsPerMinute, rateLimitConfig.exportRequestsPerMinute)
     install(PublicRateLimit) {
         this.limiter = limiter
     }

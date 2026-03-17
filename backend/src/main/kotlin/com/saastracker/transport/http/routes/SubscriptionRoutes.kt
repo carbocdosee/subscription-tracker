@@ -43,7 +43,6 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.utils.io.core.readBytes
 
-private const val EXPORT_RATE_LIMIT = 5
 
 fun Route.subscriptionRoutes(
     subscriptionService: SubscriptionService,
@@ -162,7 +161,7 @@ fun Route.subscriptionRoutes(
             if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@get
             val clientIp = call.request.headers["X-Forwarded-For"]?.substringBefore(",")
                 ?: call.request.local.remoteHost
-            if (!rateLimiter.isAllowed("$clientIp:export", EXPORT_RATE_LIMIT)) {
+            if (!rateLimiter.isAllowed("$clientIp:export", rateLimiter.exportLimit)) {
                 call.respond(HttpStatusCode.TooManyRequests, mapOf("message" to "Export rate limit exceeded. Retry in one minute."))
                 return@get
             }

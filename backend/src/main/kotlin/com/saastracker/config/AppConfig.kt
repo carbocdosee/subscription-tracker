@@ -81,7 +81,8 @@ data class SchedulerConfig(
 
 data class RateLimitConfig(
     val requestsPerMinute: Int,
-    val authRequestsPerMinute: Int
+    val authRequestsPerMinute: Int,
+    val exportRequestsPerMinute: Int = 5
 )
 
 data class CorsConfig(
@@ -153,7 +154,8 @@ fun ApplicationConfig.toAppConfig(): AppConfig = AppConfig(
     ),
     rateLimit = RateLimitConfig(
         requestsPerMinute = property("app.rateLimit.requestsPerMinute").getString().toInt(),
-        authRequestsPerMinute = property("app.rateLimit.authRequestsPerMinute").getString().toInt()
+        authRequestsPerMinute = property("app.rateLimit.authRequestsPerMinute").getString().toInt(),
+        exportRequestsPerMinute = propertyOrNull("app.rateLimit.exportRequestsPerMinute")?.getString()?.toInt() ?: 5
     ),
     cors = CorsConfig(
         allowedOrigins = property("app.cors.allowedOrigins").getString()
