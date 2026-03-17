@@ -1,0 +1,25 @@
+graph TD
+    Router[app.routes.ts] --> Auth["/auth - AuthPageComponent"]
+    Router --> Invite["/accept-invite - AcceptInvitePageComponent"]
+    Router --> Dash["/dashboard - DashboardPageComponent"]
+    Router --> Subs["/subscriptions - SubscriptionsPageComponent"]
+    Router --> Ana["/analytics - AnalyticsPageComponent"]
+    Router --> Team["/team - TeamPageComponent"]
+    Router --> Billing["/billing/upgrade - UpgradePageComponent"]
+    Router --> Settings["/settings/account - AccountPageComponent"]
+
+    subgraph Core["Core Services"]
+        API["TrackerApiService (73 методов)"]
+        Store["SubscriptionStore @ngrx/signals"]
+        TokenSvc["AuthTokenService (signal in-memory)"]
+        AuthInterceptor[AuthInterceptor]
+        AuthGuard["authGuard / guestGuard"]
+    end
+
+    Subs --> Store
+    Store --> API
+    Dash --> API
+    Ana --> API
+    Team --> API
+    AuthInterceptor --> TokenSvc
+    Router --> AuthGuard

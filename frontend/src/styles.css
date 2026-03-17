@@ -1,0 +1,124 @@
+:root {
+  --font-family: "IBM Plex Sans", "Trebuchet MS", "Noto Sans", sans-serif;
+  --bg-main: #eef3ff;
+  --bg-accent: #f8fafc;
+  --surface: #ffffff;
+  --surface-alt: #f8fbff;
+  --text: #0f172a;
+  --muted: #52627a;
+  --accent: #1473e6;
+  --accent-soft: #e7f0ff;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --border: #d8e1ef;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --radius: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Trebuchet MS", "Noto Sans", sans-serif;
+  background:
+    radial-gradient(circle at 8% 10%, #dbeafe 0%, rgba(219, 234, 254, 0.15) 38%, transparent 65%),
+    radial-gradient(circle at 88% 6%, #fee2e2 0%, rgba(254, 226, 226, 0.12) 32%, transparent 58%),
+    linear-gradient(160deg, var(--bg-main) 0%, var(--bg-accent) 56%, #ffffff 100%);
+  color: var(--text);
+}
+
+.app-shell {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: clamp(16px, 2vw, 28px);
+}
+
+.card {
+  background: linear-gradient(180deg, var(--surface) 0%, #fcfdff 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.page-title {
+  margin: 0 0 18px 0;
+  font-size: clamp(1.4rem, 2vw, 1.9rem);
+  letter-spacing: 0.01em;
+}
+
+.section-subtitle {
+  margin: 4px 0 20px 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.mb-3 {
+  margin-bottom: 16px;
+}
+
+.mt-3 {
+  margin-top: 16px;
+}
+
+.fade-in {
+  animation: fadeIn 320ms ease-out;
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  background: #f1f5fc;
+  color: #1e293b;
+  border-color: #dde6f2;
+  font-size: 0.92rem;
+}
+
+.p-datatable .p-datatable-tbody > tr > td {
+  border-color: #e8edf5;
+}
+
+.p-datatable .p-datatable-tbody > tr:hover {
+  background: #f8fbff;
+}
+
+.p-button {
+  border-radius: 10px;
+}
+
+/* AutoComplete with dropdown: join input and button seamlessly */
+.p-autocomplete-dd .p-autocomplete-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.p-autocomplete-dd .p-autocomplete-dropdown {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.p-tag {
+  border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  .card {
+    padding: 14px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

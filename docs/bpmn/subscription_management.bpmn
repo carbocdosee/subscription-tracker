@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_SubscriptionManagement"
+                  targetNamespace="https://saas-tracker.local/bpmn">
+  <bpmn:process id="subscription_management" name="Subscription CRUD with Spending Analysis" isExecutable="true">
+    <bpmn:startEvent id="StartCreateSubscription" name="User adds subscription"/>
+    <bpmn:task id="DetectPotentialDuplicate" name="Detect potential duplicate category/vendor"/>
+    <bpmn:exclusiveGateway id="DuplicateGateway" name="Duplicate found?"/>
+    <bpmn:task id="ShowDuplicateWarning" name="Show duplicate warning"/>
+    <bpmn:task id="PersistSubscription" name="Save subscription"/>
+    <bpmn:task id="RecalculateTotalSpend" name="Recalculate company total spend"/>
+    <bpmn:task id="UpdateCategoryBreakdown" name="Update spend by category"/>
+    <bpmn:exclusiveGateway id="BudgetThresholdGateway" name="Budget threshold crossed?"/>
+    <bpmn:task id="SendOverBudgetNotification" name="Send over-budget notification"/>
+    <bpmn:endEvent id="EndSubscriptionFlow" name="Done"/>
+
+    <bpmn:sequenceFlow id="s1" sourceRef="StartCreateSubscription" targetRef="DetectPotentialDuplicate"/>
+    <bpmn:sequenceFlow id="s2" sourceRef="DetectPotentialDuplicate" targetRef="DuplicateGateway"/>
+    <bpmn:sequenceFlow id="s3" sourceRef="DuplicateGateway" targetRef="ShowDuplicateWarning">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">duplicate = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="s4" sourceRef="DuplicateGateway" targetRef="PersistSubscription">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">duplicate = false</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="s5" sourceRef="ShowDuplicateWarning" targetRef="PersistSubscription"/>
+    <bpmn:sequenceFlow id="s6" sourceRef="PersistSubscription" targetRef="RecalculateTotalSpend"/>
+    <bpmn:sequenceFlow id="s7" sourceRef="RecalculateTotalSpend" targetRef="UpdateCategoryBreakdown"/>
+    <bpmn:sequenceFlow id="s8" sourceRef="UpdateCategoryBreakdown" targetRef="BudgetThresholdGateway"/>
+    <bpmn:sequenceFlow id="s9" sourceRef="BudgetThresholdGateway" targetRef="SendOverBudgetNotification">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">over_budget = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="s10" sourceRef="BudgetThresholdGateway" targetRef="EndSubscriptionFlow">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">over_budget = false</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="s11" sourceRef="SendOverBudgetNotification" targetRef="EndSubscriptionFlow"/>
+  </bpmn:process>
+</bpmn:definitions>
