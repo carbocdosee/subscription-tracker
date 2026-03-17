@@ -1,0 +1,144 @@
+erDiagram
+    companies {
+        UUID id PK
+        string name
+        string domain UK
+        string stripe_customer_id
+        enum subscription_status
+        timestamp trial_ends_at
+        decimal monthly_budget
+        int employee_count
+        jsonb settings
+    }
+
+    users {
+        UUID id PK
+        UUID company_id FK
+        string email UK
+        string name
+        string password_hash
+        enum role
+        bool is_active
+        timestamp last_login_at
+    }
+
+    subscriptions {
+        UUID id PK
+        UUID company_id FK
+        UUID created_by_id FK
+        UUID owner_id FK
+        string vendor_name
+        string category
+        decimal amount
+        string currency
+        enum billing_cycle
+        date renewal_date
+        enum status
+        enum payment_mode
+        enum payment_status
+        timestamp archived_at
+        UUID archived_by_id FK
+        string tags
+    }
+
+    refresh_tokens {
+        UUID id PK
+        UUID user_id FK
+        string token_hash UK
+        timestamp expires_at
+        timestamp revoked_at
+    }
+
+    renewal_alerts {
+        UUID id PK
+        UUID subscription_id FK
+        UUID company_id FK
+        enum alert_type
+        int alert_window_days
+        enum delivery_status
+    }
+
+    spend_snapshots {
+        UUID id PK
+        UUID company_id FK
+        smallint year
+        smallint month
+        decimal total_monthly_usd
+        int subscription_count
+    }
+
+    budget_alert_log {
+        UUID id PK
+        UUID company_id FK
+        int year
+        int month
+        int threshold_percent
+        timestamp sent_at
+    }
+
+    team_invitations {
+        UUID id PK
+        UUID company_id FK
+        string email
+        enum role
+        string token UK
+        timestamp expires_at
+        timestamp accepted_at
+    }
+
+    audit_log {
+        UUID id PK
+        UUID company_id FK
+        UUID user_id FK
+        enum action
+        enum entity_type
+        UUID entity_id
+        jsonb old_value
+        jsonb new_value
+    }
+
+    subscription_payments {
+        UUID id PK
+        UUID subscription_id FK
+        UUID company_id FK
+        UUID recorded_by_id FK
+        decimal amount
+        string currency
+        timestamp paid_at
+    }
+
+    subscription_comments {
+        UUID id PK
+        UUID subscription_id FK
+        UUID company_id FK
+        UUID user_id FK
+        string body
+    }
+
+    email_deliveries {
+        UUID id PK
+        UUID company_id FK
+        UUID invitation_id FK
+        string recipient_email
+        enum template_type
+        enum status
+    }
+
+    user_notification_reads {
+        UUID user_id FK
+        string notification_key
+        timestamp read_at
+    }
+
+    companies ||--o{ users : "has"
+    companies ||--o{ subscriptions : "owns"
+    companies ||--o{ spend_snapshots : "tracks"
+    companies ||--o{ budget_alert_log : "alerts"
+    companies ||--o{ team_invitations : "invites"
+    companies ||--o{ audit_log : "logs"
+    users ||--o{ refresh_tokens : "holds"
+    users ||--o{ subscription_comments : "writes"
+    users ||--o{ user_notification_reads : "reads"
+    subscriptions ||--o{ renewal_alerts : "triggers"
+    subscriptions ||--o{ subscription_payments : "records"
+    subscriptions ||--o{ subscription_comments : "has"

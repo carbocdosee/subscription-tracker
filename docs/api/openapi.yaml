@@ -1,0 +1,634 @@
+openapi: 3.0.3
+info:
+  title: SaaS Subscription Tracker API
+  version: 1.0.0
+  description: API for managing subscriptions, renewals, analytics, and team collaboration.
+servers:
+  - url: http://localhost
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Health check with dependency probes
+      responses:
+        "200":
+          description: Healthy
+        "503":
+          description: Dependency failure
+  /metrics:
+    get:
+      tags: [Health]
+      security: []
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Text metrics payload
+  /auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Register a company and admin account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered successfully
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Login and receive access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated
+  /auth/accept-invite:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Accept invitation and create account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "200":
+          description: Invitation accepted
+  /api/v1/subscriptions:
+    get:
+      tags: [Subscriptions]
+      summary: List company subscriptions
+      responses:
+        "200":
+          description: Subscription list
+    post:
+      tags: [Subscriptions]
+      summary: Create subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionRequest"
+      responses:
+        "201":
+          description: Created
+  /api/v1/subscriptions/{id}:
+    get:
+      tags: [Subscriptions]
+      summary: Get single subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Subscription
+    put:
+      tags: [Subscriptions]
+      summary: Update subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSubscriptionRequest"
+      responses:
+        "200":
+          description: Updated
+    delete:
+      tags: [Subscriptions]
+      summary: Delete subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Deleted
+  /api/v1/subscriptions/{id}/mark-paid:
+    post:
+      tags: [Subscriptions]
+      summary: Mark manual subscription payment as paid
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkSubscriptionPaidRequest"
+      responses:
+        "200":
+          description: Payment recorded and next payment date recalculated
+  /api/v1/subscriptions/import/csv:
+    post:
+      tags: [Subscriptions]
+      summary: Bulk import subscriptions from CSV
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Import result
+  /api/v1/subscriptions/{id}/comments:
+    get:
+      tags: [Comments]
+      summary: List comments for subscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Comment list
+    post:
+      tags: [Comments]
+      summary: Add comment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCommentRequest"
+      responses:
+        "201":
+          description: Comment created
+  /api/v1/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: KPI dashboard stats
+      responses:
+        "200":
+          description: Dashboard payload
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      summary: List unified notifications for current user
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: types
+          required: false
+          schema:
+            type: string
+            description: Comma-separated notification types
+      responses:
+        "200":
+          description: Notification feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationFeedResponse"
+  /api/v1/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Get unread notification count
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationUnreadCountResponse"
+  /api/v1/notifications/read:
+    post:
+      tags: [Notifications]
+      summary: Mark specific notifications as read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkNotificationsReadRequest"
+      responses:
+        "200":
+          description: Notifications marked as read
+  /api/v1/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all notifications as read for current user
+      responses:
+        "200":
+          description: Marked count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkAllNotificationsReadResponse"
+  /api/v1/analytics:
+    get:
+      tags: [Analytics]
+      summary: Analytics and spend diagnostics
+      parameters:
+        - in: query
+          name: employee_count
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analytics payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsResponse"
+  /api/v1/team/invite:
+    post:
+      tags: [Team]
+      summary: Invite team member (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteMemberRequest"
+      responses:
+        "200":
+          description: Active invitation reused and resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamInviteResponse"
+        "201":
+          description: Invitation sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamInviteResponse"
+  /api/v1/team/invitations:
+    get:
+      tags: [Team]
+      summary: List active invitations (links are returned only for admins)
+      responses:
+        "200":
+          description: Active invitation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamInvitationResponse"
+  /api/v1/team/users/{id}/role:
+    put:
+      tags: [Team]
+      summary: Change role for user (admin only)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRoleRequest"
+      responses:
+        "200":
+          description: Role updated
+  /api/v1/team/members:
+    get:
+      tags: [Team]
+      summary: List company members
+      responses:
+        "200":
+          description: Member list
+  /api/v1/team/audit-log:
+    get:
+      tags: [Team]
+      summary: List audit log entries
+      responses:
+        "200":
+          description: Audit entries
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      security: []
+      summary: Stripe webhook endpoint
+      parameters:
+        - in: header
+          name: Stripe-Signature
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook processed
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [companyName, companyDomain, fullName, email, password]
+      properties:
+        companyName: { type: string }
+        companyDomain: { type: string }
+        fullName: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 10 }
+        monthlyBudget: { type: string }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    AcceptInviteRequest:
+      type: object
+      required: [token, fullName, password]
+      properties:
+        token: { type: string }
+        fullName: { type: string }
+        password: { type: string }
+    InviteMemberRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role:
+          type: string
+          enum: [ADMIN, EDITOR, VIEWER]
+    UpdateUserRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [ADMIN, EDITOR, VIEWER]
+    TeamInviteResponse:
+      type: object
+      required: [invitation, reusedExisting, acceptInviteUrl, emailDelivery]
+      properties:
+        invitation:
+          $ref: "#/components/schemas/TeamInvitationResponse"
+        reusedExisting:
+          type: boolean
+        acceptInviteUrl:
+          type: string
+        emailDelivery:
+          $ref: "#/components/schemas/EmailDeliveryResponse"
+    TeamInvitationResponse:
+      type: object
+      required: [id, email, role, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [ADMIN, EDITOR, VIEWER]
+        expiresAt:
+          type: string
+          format: date-time
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        acceptInviteUrl:
+          type: string
+          nullable: true
+    EmailDeliveryResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [SENT, SKIPPED_NOT_CONFIGURED, FAILED]
+        message:
+          type: string
+          nullable: true
+    MarkNotificationsReadRequest:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: string
+    NotificationFeedResponse:
+      type: object
+      required: [items, unreadCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationItem"
+        unreadCount:
+          type: integer
+    NotificationItem:
+      type: object
+      required: [key, type, severity, title, message, createdAt, read]
+      properties:
+        key:
+          type: string
+        type:
+          type: string
+          enum:
+            [
+              RENEWAL_DUE,
+              RENEWAL_ALERT_FAILED,
+              MANUAL_PAYMENT_DUE,
+              MANUAL_PAYMENT_OVERDUE,
+              INVITATION_EXPIRING,
+              INVITATION_EMAIL_ISSUE
+            ]
+        severity:
+          type: string
+          enum: [INFO, WARNING, DANGER]
+        title:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        actionPath:
+          type: string
+          nullable: true
+        actionLabel:
+          type: string
+          nullable: true
+        read:
+          type: boolean
+    NotificationUnreadCountResponse:
+      type: object
+      required: [unreadCount]
+      properties:
+        unreadCount:
+          type: integer
+    MarkAllNotificationsReadResponse:
+      type: object
+      required: [ok, marked]
+      properties:
+        ok:
+          type: boolean
+        marked:
+          type: integer
+    CreateSubscriptionRequest:
+      type: object
+      required: [vendorName, category, amount, currency, billingCycle, renewalDate]
+      properties:
+        vendorName: { type: string }
+        vendorUrl: { type: string }
+        category: { type: string }
+        description: { type: string }
+        amount: { type: string }
+        currency: { type: string }
+        billingCycle:
+          type: string
+          enum: [MONTHLY, QUARTERLY, ANNUAL]
+        renewalDate: { type: string, format: date }
+        contractStartDate: { type: string, format: date }
+        autoRenews: { type: boolean }
+        paymentMode:
+          type: string
+          enum: [AUTO, MANUAL]
+        nextPaymentDate: { type: string, format: date }
+        status:
+          type: string
+          enum: [ACTIVE, CANCELED, PAUSED, EXPIRED]
+        tags:
+          type: array
+          items: { type: string }
+        ownerId: { type: string, format: uuid }
+        notes: { type: string }
+        documentUrl: { type: string }
+    UpdateSubscriptionRequest:
+      allOf:
+        - $ref: "#/components/schemas/CreateSubscriptionRequest"
+    MarkSubscriptionPaidRequest:
+      type: object
+      properties:
+        paidAt: { type: string, format: date }
+        amount: { type: string }
+        paymentReference: { type: string }
+        note: { type: string }
+    AddCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string }
+    YoYSpendComparisonDto:
+      type: object
+      required: [dataAvailable]
+      properties:
+        dataAvailable: { type: boolean }
+        currentYear: { type: integer, nullable: true }
+        previousYear: { type: integer, nullable: true }
+        currentYearUsd: { type: string, nullable: true }
+        previousYearUsd: { type: string, nullable: true }
+        growthPercent: { type: string, nullable: true }
+    AnalyticsResponse:
+      type: object
+      required: [yoySpendComparison, fastestGrowingSubscriptions, costPerEmployee, healthScore]
+      properties:
+        yoySpendComparison:
+          $ref: "#/components/schemas/YoYSpendComparisonDto"
+        fastestGrowingSubscriptions:
+          type: array
+          items:
+            type: object
+            required: [subscriptionId, vendorName, previousMonthlyUsd, currentMonthlyUsd, growthPercent]
+            properties:
+              subscriptionId: { type: string, format: uuid }
+              vendorName: { type: string }
+              previousMonthlyUsd: { type: string }
+              currentMonthlyUsd: { type: string }
+              growthPercent: { type: string }
+        budgetGauge:
+          type: object
+          nullable: true
+          required: [budgetUsd, actualUsd, utilizationPercent, overBudget]
+          properties:
+            budgetUsd: { type: string }
+            actualUsd: { type: string }
+            utilizationPercent: { type: string }
+            overBudget: { type: boolean }
+        costPerEmployee:
+          type: object
+          required: [employeeCount, monthlyUsd, annualUsd]
+          properties:
+            employeeCount: { type: integer }
+            monthlyUsd: { type: string }
+            annualUsd: { type: string }
+        healthScore:
+          type: string
+          enum: [GOOD, WARNING, CRITICAL]

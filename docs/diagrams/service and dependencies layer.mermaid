@@ -1,0 +1,44 @@
+graph LR
+    subgraph Repos["Repositories"]
+        CR[CompanyRepo]
+        UR[UserRepo]
+        SR[SubscriptionRepo]
+        RR[RefreshTokenRepo]
+        AR[AlertRepo]
+        SSR[SpendSnapshotRepo]
+        BAR[BudgetAlertRepo]
+        AuditR[AuditLogRepo]
+        TIR[TeamInviteRepo]
+    end
+
+    subgraph Svc["Services"]
+        AuthSvc[AuthService]
+        SubSvc[SubscriptionService]
+        AnaSvc[AnalyticsService]
+        DashSvc[DashboardService]
+        AlertSvc[AlertService]
+        BudgetSvc[BudgetAlertService]
+        SnapSvc[SpendSnapshotService]
+        JwtSvc[JwtService]
+        PwdSvc[PasswordService]
+        EmailSvc[EmailService]
+        StripeSvc[StripeBillingService]
+    end
+
+    AuthSvc --> UR & CR & RR & TIR
+    AuthSvc --> JwtSvc & PwdSvc & EmailSvc
+    SubSvc --> SR & CR & AuditR
+    AnaSvc --> SSR & CR & UR
+    DashSvc --> SR & AR & CR
+    AlertSvc --> AR & SR & EmailSvc
+    BudgetSvc --> BAR & SR & EmailSvc
+    SnapSvc --> SSR & SR
+    StripeSvc --> CR
+
+    subgraph Jobs["Quartz Jobs"]
+        RenewJob[RenewalCheckJob]
+        SnapJob[SpendSnapshotJob]
+    end
+
+    RenewJob --> AlertSvc & BudgetSvc
+    SnapJob --> SnapSvc

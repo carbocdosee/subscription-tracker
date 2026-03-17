@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_RenewalAlert"
+                  targetNamespace="https://saas-tracker.local/bpmn">
+  <bpmn:process id="subscription_renewal_alert" name="Subscription Renewal Alert Flow" isExecutable="true">
+    <bpmn:startEvent id="StartDailyTimer" name="Daily 09:00 UTC Timer"/>
+    <bpmn:task id="FetchActiveSubscriptions" name="Fetch all active subscriptions"/>
+    <bpmn:task id="CalculateDaysUntilRenewal" name="Calculate days until renewal"/>
+    <bpmn:task id="FilterThresholds" name="Filter thresholds 90/60/30/7/1"/>
+    <bpmn:exclusiveGateway id="AlertAlreadySentGateway" name="Alert already sent?"/>
+    <bpmn:task id="SkipAlertTask" name="Skip (idempotent)"/>
+    <bpmn:task id="CreateAlertRecord" name="Create alert record"/>
+    <bpmn:task id="SendDigestEmail" name="Send digest grouped by company"/>
+    <bpmn:task id="MarkAlertSent" name="Mark alert as sent"/>
+    <bpmn:endEvent id="EndEvent" name="User receives renewal digest"/>
+
+    <bpmn:sequenceFlow id="flow1" sourceRef="StartDailyTimer" targetRef="FetchActiveSubscriptions"/>
+    <bpmn:sequenceFlow id="flow2" sourceRef="FetchActiveSubscriptions" targetRef="CalculateDaysUntilRenewal"/>
+    <bpmn:sequenceFlow id="flow3" sourceRef="CalculateDaysUntilRenewal" targetRef="FilterThresholds"/>
+    <bpmn:sequenceFlow id="flow4" sourceRef="FilterThresholds" targetRef="AlertAlreadySentGateway"/>
+    <bpmn:sequenceFlow id="flow5" sourceRef="AlertAlreadySentGateway" targetRef="SkipAlertTask">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">already_sent = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow6" sourceRef="AlertAlreadySentGateway" targetRef="CreateAlertRecord">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">already_sent = false</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow7" sourceRef="SkipAlertTask" targetRef="EndEvent"/>
+    <bpmn:sequenceFlow id="flow8" sourceRef="CreateAlertRecord" targetRef="SendDigestEmail"/>
+    <bpmn:sequenceFlow id="flow9" sourceRef="SendDigestEmail" targetRef="MarkAlertSent"/>
+    <bpmn:sequenceFlow id="flow10" sourceRef="MarkAlertSent" targetRef="EndEvent"/>
+  </bpmn:process>
+</bpmn:definitions>

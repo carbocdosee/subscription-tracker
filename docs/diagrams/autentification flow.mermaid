@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant Browser
+    participant Angular
+    participant Interceptor as AuthInterceptor
+    participant Ktor as "Ktor Backend"
+    participant DB as PostgreSQL
+
+    Browser->>Angular: Логин (email + password)
+    Angular->>Ktor: POST /auth/login
+    Ktor->>DB: Проверка пользователя (bcrypt)
+    DB-->>Ktor: User found
+    Ktor->>DB: Сохранить refresh_token (hash)
+    Ktor-->>Angular: accessToken (15 мин) + Set-Cookie: refreshToken (httpOnly)
+    Angular->>Angular: Сохранить accessToken в памяти (signal)
+
+    Note over Angular,Ktor: Обычный запрос
+    Angular->>Interceptor: HTTP запрос
+    Interceptor->>Ktor: Bearer accessToken
+    Ktor-->>Angular: 200 OK
+
+    Note over Angular,Ktor: Истёк accessToken
+    Interceptor->>Ktor: 401 Unauthorized
+    Interceptor->>Ktor: POST /auth/refresh (cookie)
+    Ktor->>DB: Проверить token_hash, не отозван
+    Ktor-->>Interceptor: Новый accessToken
+    Interceptor->>Ktor: Повтор оригинального запроса
+    Ktor-->>Angular: 200 OK

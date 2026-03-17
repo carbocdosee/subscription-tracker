@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_TeamOnboarding"
+                  targetNamespace="https://saas-tracker.local/bpmn">
+  <bpmn:process id="team_onboarding" name="Team Onboarding and Role Management" isExecutable="true">
+    <bpmn:startEvent id="StartAdminRegisters" name="Admin registers company"/>
+    <bpmn:task id="InviteTeamMembers" name="Invite team members by email"/>
+    <bpmn:task id="AcceptInvitation" name="Team member accepts invite"/>
+    <bpmn:task id="AssignRole" name="Admin assigns role (viewer/editor/admin)"/>
+    <bpmn:task id="LoadRoleScopedView" name="Member sees permitted subscriptions"/>
+    <bpmn:endEvent id="EndOnboarding" name="Onboarding complete"/>
+
+    <bpmn:sequenceFlow id="t1" sourceRef="StartAdminRegisters" targetRef="InviteTeamMembers"/>
+    <bpmn:sequenceFlow id="t2" sourceRef="InviteTeamMembers" targetRef="AcceptInvitation"/>
+    <bpmn:sequenceFlow id="t3" sourceRef="AcceptInvitation" targetRef="AssignRole"/>
+    <bpmn:sequenceFlow id="t4" sourceRef="AssignRole" targetRef="LoadRoleScopedView"/>
+    <bpmn:sequenceFlow id="t5" sourceRef="LoadRoleScopedView" targetRef="EndOnboarding"/>
+  </bpmn:process>
+</bpmn:definitions>

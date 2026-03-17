@@ -1,0 +1,83 @@
+graph TB
+    subgraph Client["Клиент (Angular 17)"]
+        UI["Angular UI<br/>PrimeNG + Chart.js"]
+        Store["SubscriptionStore<br/>@ngrx/signals"]
+        Interceptor["AuthInterceptor<br/>Silent Refresh"]
+    end
+
+    subgraph Infra["Инфраструктура"]
+        Nginx["Nginx<br/>Reverse Proxy"]
+        Redis[("Redis<br/>Cache")]
+        PG[("PostgreSQL<br/>13 таблиц")]
+    end
+
+    subgraph Backend["Backend (Ktor 2.3 / Kotlin 2.0)"]
+        direction TB
+        subgraph Transport["Transport Layer"]
+            AuthR[AuthRoutes]
+            SubR[SubscriptionRoutes]
+            TeamR[TeamRoutes]
+            DashR[DashboardRoutes]
+            AnaR[AnalyticsRoutes]
+            BilR[BillingRoutes]
+            NotR[NotificationRoutes]
+        end
+
+        subgraph Services["Service Layer"]
+            AuthSvc[AuthService]
+            SubSvc[SubscriptionService]
+            AnaSvc[AnalyticsService]
+            DashSvc[DashboardService]
+            AlertSvc[AlertService]
+            BudgetSvc[BudgetAlertService]
+            SnapSvc[SpendSnapshotService]
+            NotifSvc[NotificationService]
+        end
+
+        subgraph Security["Security"]
+            JWT["JwtService<br/>15min TTL"]
+            Rate[RateLimiting]
+        end
+
+        subgraph Persistence["Persistence Layer"]
+            Repos["Exposed Repositories<br/>13 interfaces"]
+            Tables["Exposed Tables<br/>ORM Mapping"]
+            Flyway["Flyway V1-V10<br/>Migrations"]
+        end
+
+        subgraph Scheduler["Scheduler (Quartz)"]
+            RenewJob[RenewalCheckJob]
+            SnapJob[SpendSnapshotJob]
+        end
+
+        subgraph External["External Integrations"]
+            Stripe["StripeBillingService<br/>SDK 31.3.0"]
+            Email["EmailService<br/>SMTP / Resend"]
+            PDF["PDFBox 3.0.2<br/>CSV Export"]
+        end
+    end
+
+    subgraph Ext["Внешние сервисы"]
+        StripeAPI[Stripe API]
+        ResendAPI["Resend / SMTP"]
+        Prometheus["Prometheus<br/>Metrics"]
+    end
+
+    UI <-->|HTTP + httpOnly Cookie| Nginx
+    Nginx --> Transport
+    Store --> UI
+    Interceptor --> UI
+
+    Transport --> Security
+    Transport --> Services
+    Services --> Persistence
+    Services --> External
+    Scheduler --> Services
+
+    Persistence --> PG
+    Persistence --> Flyway
+    Services --> Redis
+
+    Stripe --> StripeAPI
+    Email --> ResendAPI
+    Backend --> Prometheus
