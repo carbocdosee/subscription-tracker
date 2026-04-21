@@ -101,5 +101,6 @@ data class OnboardingSettingsResponse(
 data class CompanySettingsResponse(
     val monthlyBudget: String?,
     val employeeCount: Int?,
+    val zombieThresholdDays: Int = 60,
     val onboarding: OnboardingSettingsResponse? = null
 )

@@ -1,6 +1,30 @@
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <!--
+                Mask PII in log output (GDPR Art. 32 — security of processing).
+                Patterns cover:
+                  - Email addresses (e.g. user@example.com → ***@***.***)
+                  - Raw hex tokens / refresh tokens (64 hex chars)
+                  - JWT access tokens (eyJ… format)
+            -->
+            <jsonGeneratorDecorator class="net.logstash.logback.mask.MaskingJsonGeneratorDecorator">
+                <valueMask>
+                    <!-- Email addresses -->
+                    <value>[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}</value>
+                    <mask>***@***.***</mask>
+                </valueMask>
+                <valueMask>
+                    <!-- Raw hex tokens (refresh tokens, reset tokens — 64 hex chars) -->
+                    <value>[0-9a-fA-F]{64}</value>
+                    <mask>***TOKEN***</mask>
+                </valueMask>
+                <valueMask>
+                    <!-- JWT bearer tokens -->
+                    <value>eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+</value>
+                    <mask>***JWT***</mask>
+                </valueMask>
+            </jsonGeneratorDecorator>
             <providers>
                 <timestamp>
                     <fieldName>timestamp</fieldName>

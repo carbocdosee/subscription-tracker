@@ -3,6 +3,8 @@ package com.saastracker.domain.service
 import com.saastracker.domain.error.AppError
 import com.saastracker.domain.error.AppResult
 import com.saastracker.domain.model.AuditLogEntry
+import com.saastracker.domain.model.Company
+import com.saastracker.domain.model.CompanySubscriptionStatus
 import com.saastracker.domain.model.TeamInvitation
 import com.saastracker.domain.model.User
 import com.saastracker.domain.model.UserRole
@@ -11,8 +13,12 @@ import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.CompanyRepository
 import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.IdentityProvider
+import com.saastracker.persistence.repository.NotificationReadRepository
+import com.saastracker.persistence.repository.PasswordResetRepository
+import com.saastracker.persistence.repository.PasswordResetTokenRecord
 import com.saastracker.persistence.repository.RefreshTokenRecord
 import com.saastracker.persistence.repository.RefreshTokenRepository
+import com.saastracker.persistence.repository.SubscriptionRepository
 import com.saastracker.persistence.repository.TeamInvitationRepository
 import com.saastracker.persistence.repository.UserRepository
 import com.saastracker.transport.email.EmailDeliveryResult
@@ -27,6 +33,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -38,6 +46,9 @@ class AuthServiceTest {
     private val auditLogRepository = mockk<AuditLogRepository>(relaxed = true)
     private val emailDeliveryRepository = mockk<EmailDeliveryRepository>(relaxed = true)
     private val refreshTokenRepository = mockk<RefreshTokenRepository>(relaxed = true)
+    private val notificationReadRepository = mockk<NotificationReadRepository>(relaxed = true)
+    private val passwordResetRepository = mockk<PasswordResetRepository>(relaxed = true)
+    private val subscriptionRepository = mockk<SubscriptionRepository>(relaxed = true)
     private val passwordService = mockk<PasswordService>(relaxed = true)
     private val jwtService = mockk<JwtService>(relaxed = true)
     private val emailService = mockk<EmailService>(relaxed = true)
@@ -50,7 +61,10 @@ class AuthServiceTest {
         invitationRepository = invitationRepository,
         auditLogRepository = auditLogRepository,
         emailDeliveryRepository = emailDeliveryRepository,
+        subscriptionRepository = subscriptionRepository,
         refreshTokenRepository = refreshTokenRepository,
+        notificationReadRepository = notificationReadRepository,
+        passwordResetRepository = passwordResetRepository,
         passwordService = passwordService,
         jwtService = jwtService,
         emailService = emailService,
@@ -192,7 +206,267 @@ class AuthServiceTest {
         verify(exactly = 0) { refreshTokenRepository.revoke(any()) }
     }
 
-    // ---- Invitation tests (unchanged) ----
+    // ---- requestPasswordReset() tests ----
+
+    @Test
+    fun `requestPasswordReset creates token and sends email for known active user`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val user = activeUser()
+
+        every { clock.nowInstant() } returns now
+        every { userRepository.findByEmail(user.email) } returns user
+        every { emailService.sendPasswordResetEmail(any(), any()) } returns EmailDeliveryResult(
+            status = EmailDeliveryStatus.SENT,
+            message = "Delivered"
+        )
+
+        val result = service.requestPasswordReset(user.email)
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 1) { passwordResetRepository.deleteExpiredForUser(user.id) }
+        verify(exactly = 1) { passwordResetRepository.create(user.id, any(), any()) }
+        verify(exactly = 1) { emailService.sendPasswordResetEmail(user.email, any()) }
+    }
+
+    @Test
+    fun `requestPasswordReset returns success without creating token for unknown email`() {
+        every { userRepository.findByEmail("nobody@company.com") } returns null
+
+        val result = service.requestPasswordReset("nobody@company.com")
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 0) { passwordResetRepository.create(any(), any(), any()) }
+        verify(exactly = 0) { emailService.sendPasswordResetEmail(any(), any()) }
+    }
+
+    @Test
+    fun `requestPasswordReset returns success without creating token for inactive user`() {
+        val inactive = activeUser().copy(isActive = false)
+        every { userRepository.findByEmail(inactive.email) } returns inactive
+
+        val result = service.requestPasswordReset(inactive.email)
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 0) { passwordResetRepository.create(any(), any(), any()) }
+        verify(exactly = 0) { emailService.sendPasswordResetEmail(any(), any()) }
+    }
+
+    // ---- resetPassword() tests ----
+
+    @Test
+    fun `resetPassword with valid token updates password and revokes all sessions`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val user = activeUser()
+        val rawToken = "validresettoken1234567890"
+        val tokenHash = sha256Hex(rawToken)
+        val recordId = UUID.randomUUID()
+
+        every { clock.nowInstant() } returns now
+        every { passwordResetRepository.findByHash(tokenHash) } returns PasswordResetTokenRecord(
+            id = recordId,
+            userId = user.id,
+            tokenHash = tokenHash,
+            expiresAt = now.plus(Duration.ofMinutes(30)),
+            usedAt = null
+        )
+        every { userRepository.findById(user.id) } returns user
+
+        val result = service.resetPassword(rawToken, "NewPassword99!")
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 1) { userRepository.update(any()) }
+        verify(exactly = 1) { passwordResetRepository.markUsed(recordId) }
+        verify(exactly = 1) { refreshTokenRepository.revokeAllForUser(user.id) }
+    }
+
+    @Test
+    fun `resetPassword with unknown token returns Validation failure`() {
+        val rawToken = "unknowntoken1234567890"
+        val tokenHash = sha256Hex(rawToken)
+
+        every { passwordResetRepository.findByHash(tokenHash) } returns null
+
+        val result = service.resetPassword(rawToken, "NewPassword99!")
+
+        assertTrue(result is AppResult.Failure)
+        assertTrue((result as AppResult.Failure).error is AppError.Validation)
+        verify(exactly = 0) { userRepository.update(any()) }
+    }
+
+    @Test
+    fun `resetPassword with already-used token returns Validation failure`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val rawToken = "usedtoken12345678901234"
+        val tokenHash = sha256Hex(rawToken)
+
+        every { clock.nowInstant() } returns now
+        every { passwordResetRepository.findByHash(tokenHash) } returns PasswordResetTokenRecord(
+            id = UUID.randomUUID(),
+            userId = UUID.randomUUID(),
+            tokenHash = tokenHash,
+            expiresAt = now.plus(Duration.ofMinutes(30)),
+            usedAt = now.minus(Duration.ofMinutes(10))
+        )
+
+        val result = service.resetPassword(rawToken, "NewPassword99!")
+
+        assertTrue(result is AppResult.Failure)
+        val error = (result as AppResult.Failure).error
+        assertTrue(error is AppError.Validation)
+        assertEquals("Reset token already used", error.message)
+        verify(exactly = 0) { userRepository.update(any()) }
+    }
+
+    @Test
+    fun `resetPassword with expired token returns Validation failure`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val rawToken = "expiredtoken123456789012"
+        val tokenHash = sha256Hex(rawToken)
+
+        every { clock.nowInstant() } returns now
+        every { passwordResetRepository.findByHash(tokenHash) } returns PasswordResetTokenRecord(
+            id = UUID.randomUUID(),
+            userId = UUID.randomUUID(),
+            tokenHash = tokenHash,
+            expiresAt = now.minus(Duration.ofSeconds(1)),
+            usedAt = null
+        )
+
+        val result = service.resetPassword(rawToken, "NewPassword99!")
+
+        assertTrue(result is AppResult.Failure)
+        val error = (result as AppResult.Failure).error
+        assertTrue(error is AppError.Validation)
+        assertEquals("Reset token expired", error.message)
+        verify(exactly = 0) { userRepository.update(any()) }
+    }
+
+    @Test
+    fun `resetPassword for inactive user returns Forbidden`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val inactive = activeUser().copy(isActive = false)
+        val rawToken = "inactivetoken123456789012"
+        val tokenHash = sha256Hex(rawToken)
+        val recordId = UUID.randomUUID()
+
+        every { clock.nowInstant() } returns now
+        every { passwordResetRepository.findByHash(tokenHash) } returns PasswordResetTokenRecord(
+            id = recordId,
+            userId = inactive.id,
+            tokenHash = tokenHash,
+            expiresAt = now.plus(Duration.ofMinutes(30)),
+            usedAt = null
+        )
+        every { userRepository.findById(inactive.id) } returns inactive
+
+        val result = service.resetPassword(rawToken, "NewPassword99!")
+
+        assertTrue(result is AppResult.Failure)
+        assertTrue((result as AppResult.Failure).error is AppError.Forbidden)
+        verify(exactly = 0) { userRepository.update(any()) }
+    }
+
+    // ---- exportPersonalData() tests ----
+
+    @Test
+    fun `exportPersonalData returns structured export for known user`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val user = activeUser()
+        val company = company(id = user.companyId)
+
+        every { clock.nowInstant() } returns now
+        every { userRepository.findById(user.id) } returns user
+        every { companyRepository.findById(user.companyId) } returns company
+        every { auditLogRepository.listByCompany(user.companyId) } returns emptyList()
+
+        val result = service.exportPersonalData(user.id)
+
+        assertTrue(result is AppResult.Success)
+        val export = (result as AppResult.Success).value
+        assertTrue(export.containsKey("profile"))
+        assertTrue(export.containsKey("company"))
+        assertTrue(export.containsKey("auditLog"))
+        val profile = export["profile"] as Map<*, *>
+        assertEquals(user.id.toString(), profile["id"])
+        assertEquals(user.email, profile["email"])
+        assertEquals(user.name, profile["name"])
+        val companyData = export["company"] as Map<*, *>
+        assertEquals(company.name, companyData["name"])
+    }
+
+    @Test
+    fun `exportPersonalData returns NotFound for unknown user`() {
+        val userId = UUID.randomUUID()
+        every { userRepository.findById(userId) } returns null
+
+        val result = service.exportPersonalData(userId)
+
+        assertTrue(result is AppResult.Failure)
+        assertTrue((result as AppResult.Failure).error is AppError.NotFound)
+    }
+
+    // ---- deleteAccount() tests ----
+
+    @Test
+    fun `deleteAccount as last company member cascades full company deletion`() {
+        val user = activeUser()
+        every { userRepository.findById(user.id) } returns user
+        every { userRepository.listByCompany(user.companyId) } returns listOf(user)
+
+        val result = service.deleteAccount(user.id)
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 1) { refreshTokenRepository.revokeAllForUser(user.id) }
+        verify(exactly = 1) { companyRepository.delete(user.companyId) }
+        verify(exactly = 0) { userRepository.update(any()) }
+    }
+
+    @Test
+    fun `deleteAccount with remaining members anonymises user record`() {
+        val companyId = UUID.randomUUID()
+        val user = activeUser().copy(companyId = companyId)
+        val colleague = activeUser().copy(companyId = companyId)
+        every { userRepository.findById(user.id) } returns user
+        every { userRepository.listByCompany(companyId) } returns listOf(user, colleague)
+
+        val result = service.deleteAccount(user.id)
+
+        assertTrue(result is AppResult.Success)
+        verify(exactly = 0) { companyRepository.delete(any()) }
+        verify(exactly = 1) {
+            userRepository.update(
+                match {
+                    it.id == user.id &&
+                        it.email.startsWith("deleted-") &&
+                        it.name == "Deleted User" &&
+                        it.passwordHash == "" &&
+                        !it.isActive
+                }
+            )
+        }
+    }
+
+    // ---- inviteMember() rate-limit test ----
+
+    @Test
+    fun `inviteMember returns Forbidden when daily invitation limit is reached`() {
+        val now = Instant.parse("2026-03-18T10:00:00Z")
+        val currentUser = adminUser()
+
+        every { clock.nowInstant() } returns now
+        every { userRepository.findByEmail(any()) } returns null
+        every { invitationRepository.countCreatedSince(currentUser.companyId, any()) } returns 20L
+
+        val result = service.inviteMember(currentUser, InviteMemberRequest("new@company.com", UserRole.VIEWER))
+
+        assertTrue(result is AppResult.Failure)
+        val error = (result as AppResult.Failure).error
+        assertTrue(error is AppError.Forbidden)
+        assertTrue(error.message.contains("20"))
+        verify(exactly = 0) { invitationRepository.create(any()) }
+    }
+
+    // ---- Invitation tests ----
 
     @Test
     fun `should reuse active invitation and return reusedExisting true`() {
@@ -404,6 +678,13 @@ class AuthServiceTest {
         verify(exactly = 1) { auditLogRepository.append(any()) }
     }
 
+    // ---- Helpers ----
+
+    private fun sha256Hex(input: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
     private fun adminUser(id: UUID = UUID.randomUUID()): User = User(
         id = id,
         companyId = UUID.randomUUID(),
@@ -426,6 +707,20 @@ class AuthServiceTest {
         isActive = true,
         lastLoginAt = Instant.parse("2026-03-10T09:00:00Z"),
         createdAt = Instant.parse("2026-01-01T00:00:00Z")
+    )
+
+    private fun company(id: UUID = UUID.randomUUID()): Company = Company(
+        id = id,
+        name = "Test Co",
+        domain = "test.co",
+        stripeCustomerId = null,
+        subscriptionStatus = CompanySubscriptionStatus.TRIAL,
+        trialEndsAt = Instant.parse("2026-06-01T00:00:00Z"),
+        monthlyBudget = BigDecimal("1000.00"),
+        employeeCount = null,
+        settings = "{}",
+        createdAt = Instant.parse("2026-01-01T00:00:00Z"),
+        updatedAt = Instant.parse("2026-01-01T00:00:00Z")
     )
 
     private fun invitation(

@@ -3,6 +3,7 @@ package com.saastracker.transport.http
 import com.saastracker.config.AppConfig
 import com.saastracker.transport.http.response.ErrorResponse
 import com.saastracker.transport.metrics.AppMetrics
+import com.saastracker.util.sanitizeForLog
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
@@ -22,6 +23,8 @@ import io.ktor.server.plugins.forwardedheaders.ForwardedHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.request.uri
+import io.ktor.server.request.userAgent
 import io.ktor.server.response.respond
 import kotlinx.serialization.json.Json
 import org.valiktor.ConstraintViolationException
@@ -60,6 +63,24 @@ fun Application.configureHttp(appConfig: AppConfig, appMetrics: AppMetrics) {
     install(CallLogging) {
         level = org.slf4j.event.Level.INFO
         mdc("request_id") { call -> call.callId }
+        format { call ->
+            val status = call.response.status() ?: HttpStatusCode.Processing
+            val method = call.request.httpMethod.value
+            val uri = call.request.uri.sanitizeForLog()
+            val ip = (call.request.headers["X-Forwarded-For"] ?: "unknown").sanitizeForLog()
+            val ua = (call.request.userAgent() ?: "-").sanitizeForLog()
+            "${status.value} ${status.description}: $method $uri ip=$ip ua=$ua"
+        }
+    }
+
+    // Log every incoming request immediately upon arrival (before processing).
+    // This captures requests that may crash mid-pipeline and produce no response log.
+    intercept(ApplicationCallPipeline.Setup) {
+        val method = call.request.httpMethod.value
+        val uri = call.request.uri.sanitizeForLog()
+        val ip = (call.request.headers["X-Forwarded-For"] ?: "unknown").sanitizeForLog()
+        this@configureHttp.log.info("→ $method $uri ip=$ip rid=${call.callId}")
+        proceed()
     }
     install(CORS) {
         allowHeader(HttpHeaders.Authorization)
@@ -94,7 +115,10 @@ fun Application.configureHttp(appConfig: AppConfig, appMetrics: AppMetrics) {
             respondError(call, HttpStatusCode.BadRequest, cause.message ?: "Invalid request body")
         }
         exception<Throwable> { call, cause ->
-            this@configureHttp.log.error("Unhandled error", cause)
+            val method = call.request.httpMethod.value
+            val uri = call.request.uri.sanitizeForLog()
+            val rid = call.callId ?: "?"
+            this@configureHttp.log.error("Unhandled error rid=$rid $method $uri", cause)
             respondError(call, HttpStatusCode.InternalServerError, "Internal server error")
         }
     }

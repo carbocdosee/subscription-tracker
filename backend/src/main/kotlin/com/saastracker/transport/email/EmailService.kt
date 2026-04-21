@@ -56,6 +56,16 @@ interface EmailService {
         currentSpend: BigDecimal,
         budget: BigDecimal
     )
+
+    fun sendPasswordResetEmail(email: String, token: String): EmailDeliveryResult
+
+    fun sendWeeklyDigest(
+        company: Company,
+        recipients: List<String>,
+        renewals: List<SubscriptionWithDaysLeft>,
+        zombies: List<Subscription>,
+        monthlySpend: BigDecimal
+    )
 }
 
 class ResendEmailService(
@@ -90,7 +100,7 @@ class ResendEmailService(
                   <a href="$inviteLink" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">
                     Accept invite
                   </a>
-                  <p style="font-size:12px;color:#64748b;margin-top:18px;">This invitation expires in 7 days.</p>
+                  <p style="font-size:12px;color:#64748b;margin-top:18px;">This invitation expires in 2 days.</p>
                 </div>
               </body>
             </html>
@@ -115,6 +125,28 @@ class ResendEmailService(
             subject = "⚠️ Budget Alert: ${companyName.sanitizeEmailSubject()} has reached $thresholdPercent% of monthly budget",
             html = html
         )
+    }
+
+    override fun sendPasswordResetEmail(email: String, token: String): EmailDeliveryResult {
+        val resetLink = "${config.frontendBaseUrl}/reset-password?token=$token"
+        val html = buildPasswordResetEmail(resetLink)
+        return sendEmail(
+            recipients = listOf(email),
+            subject = "Reset your password",
+            html = html
+        )
+    }
+
+    override fun sendWeeklyDigest(
+        company: Company,
+        recipients: List<String>,
+        renewals: List<SubscriptionWithDaysLeft>,
+        zombies: List<Subscription>,
+        monthlySpend: BigDecimal
+    ) {
+        if (recipients.isEmpty()) return
+        val content = buildWeeklyDigestEmail(company, renewals, zombies, monthlySpend)
+        sendEmail(recipients = recipients, subject = content.subject, html = content.html)
     }
 
     private fun sendEmail(recipients: List<String>, subject: String, html: String): EmailDeliveryResult {
@@ -189,8 +221,8 @@ fun buildRenewalDigestEmail(
         """
             <tr>
               <td style="padding:14px;border-bottom:1px solid #e2e8f0;">
-                <img src="${subscription.vendorLogoUrl ?: "https://logo.clearbit.com/${subscription.vendorName.lowercase()}.com"}" alt="${subscription.vendorName.escapeHtml()}"
-                     style="width:24px;height:24px;border-radius:4px;vertical-align:middle;margin-right:8px;"/>
+                <!-- Vendor logo only shown when a URL is stored; no external tracking calls -->
+                ${if (subscription.vendorLogoUrl != null) """<img src="${subscription.vendorLogoUrl.escapeHtml()}" alt="${subscription.vendorName.escapeHtml()}" style="width:24px;height:24px;border-radius:4px;vertical-align:middle;margin-right:8px;"/>""" else ""}
                 <strong>${subscription.vendorName.escapeHtml()}</strong>
               </td>
               <td style="padding:14px;border-bottom:1px solid #e2e8f0;">${subscription.currency} ${subscription.amount}</td>
@@ -252,6 +284,93 @@ fun buildRenewalDigestEmail(
     )
 }
 
+fun buildWeeklyDigestEmail(
+    company: Company,
+    renewals: List<SubscriptionWithDaysLeft>,
+    zombies: List<Subscription>,
+    monthlySpend: BigDecimal
+): EmailContent {
+    val renewalRows = renewals.joinToString("") { item ->
+        val s = item.subscription
+        val logoHtml = if (s.vendorLogoUrl != null)
+            """<img src="${s.vendorLogoUrl.escapeHtml()}" alt="" style="width:20px;height:20px;border-radius:4px;vertical-align:middle;margin-right:6px;"/>"""
+        else ""
+        """<tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">$logoHtml${s.vendorName.escapeHtml()}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">${s.currency} ${s.amount}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">${s.renewalDate}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#0ea5e9;font-weight:600;">${item.daysLeft}d</td>
+        </tr>"""
+    }
+    val zombieRows = zombies.joinToString("") { s ->
+        val logoHtml = if (s.vendorLogoUrl != null)
+            """<img src="${s.vendorLogoUrl.escapeHtml()}" alt="" style="width:20px;height:20px;border-radius:4px;vertical-align:middle;margin-right:6px;"/>"""
+        else ""
+        """<tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">$logoHtml${s.vendorName.escapeHtml()}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">${s.currency} ${s.amount}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;">${s.category.escapeHtml()}</td>
+        </tr>"""
+    }
+    val renewalSection = if (renewals.isNotEmpty()) """
+        <h2 style="font-size:16px;color:#0f172a;margin:24px 0 10px;">Upcoming renewals (${renewals.size})</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#f8fafc;color:#334155;text-align:left;">
+            <th style="padding:10px 12px;">Vendor</th>
+            <th style="padding:10px 12px;">Amount</th>
+            <th style="padding:10px 12px;">Renewal</th>
+            <th style="padding:10px 12px;">Days left</th>
+          </tr></thead>
+          <tbody>$renewalRows</tbody>
+        </table>""" else ""
+    val zombieSection = if (zombies.isNotEmpty()) """
+        <h2 style="font-size:16px;color:#0f172a;margin:24px 0 10px;">Zombie subscriptions — review &amp; cancel (${zombies.size})</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#fef9f0;color:#334155;text-align:left;">
+            <th style="padding:10px 12px;">Vendor</th>
+            <th style="padding:10px 12px;">Amount</th>
+            <th style="padding:10px 12px;">Category</th>
+          </tr></thead>
+          <tbody>$zombieRows</tbody>
+        </table>""" else ""
+    val html = """<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Weekly SaaS Digest</title></head>
+  <body style="margin:0;padding:24px;background:#eef2ff;font-family:'Segoe UI',Arial,sans-serif;">
+    <div style="max-width:760px;margin:0 auto;background:#fff;border-radius:16px;padding:28px;">
+      <h1 style="margin:0 0 4px;font-size:22px;color:#0f172a;">Weekly SaaS Digest</h1>
+      <p style="margin:0 0 20px;color:#64748b;">${company.name.escapeHtml()}</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="flex:1;min-width:140px;background:#f8fafc;border-radius:10px;padding:16px;">
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Monthly spend</div>
+          <div style="font-size:20px;font-weight:700;color:#0f172a;">USD ${monthlySpend}</div>
+        </div>
+        <div style="flex:1;min-width:140px;background:#fef2f2;border-radius:10px;padding:16px;">
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Zombie tools</div>
+          <div style="font-size:20px;font-weight:700;color:#dc2626;">${zombies.size}</div>
+        </div>
+        <div style="flex:1;min-width:140px;background:#f0fdf4;border-radius:10px;padding:16px;">
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Renewing soon</div>
+          <div style="font-size:20px;font-weight:700;color:#16a34a;">${renewals.size}</div>
+        </div>
+      </div>
+      $renewalSection
+      $zombieSection
+      <p style="margin-top:24px;font-size:12px;color:#94a3b8;">
+        You receive this digest because weekly summaries are enabled for your workspace.
+        To unsubscribe, go to <strong>Settings → Account → Notifications</strong>.
+      </p>
+    </div>
+  </body>
+</html>"""
+    val subject = buildString {
+        append("[${company.name.sanitizeEmailSubject()}] Weekly digest")
+        if (zombies.isNotEmpty()) append(" · ${zombies.size} zombie tool${if (zombies.size > 1) "s" else ""}")
+        if (renewals.isNotEmpty()) append(" · ${renewals.size} renewing soon")
+    }
+    return EmailContent(subject = subject, html = html)
+}
+
 fun buildBudgetAlertEmail(
     companyName: String,
     thresholdPercent: Int,
@@ -299,6 +418,33 @@ fun buildBudgetAlertEmail(
         </html>
     """.trimIndent()
 }
+
+fun buildPasswordResetEmail(resetLink: String): String = """
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Reset your password</title>
+      </head>
+      <body style="margin:0;padding:24px;background:#eef2ff;font-family:'Segoe UI',Arial,sans-serif;">
+        <div style="max-width:620px;margin:0 auto;background:white;border-radius:16px;padding:24px;">
+          <h1 style="margin:0 0 12px 0;font-size:20px;color:#0f172a;">Reset your password</h1>
+          <p style="color:#334155;margin:0 0 20px 0;">
+            We received a request to reset the password for your SaaS Subscription Tracker account.
+            Click the button below to choose a new password. This link expires in 1 hour.
+          </p>
+          <a href="$resetLink" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+            Reset password
+          </a>
+          <p style="font-size:12px;color:#64748b;margin-top:20px;">
+            If you did not request a password reset, you can safely ignore this email.
+            Your password will not change.
+          </p>
+        </div>
+      </body>
+    </html>
+""".trimIndent()
 
 // Escapes HTML special characters to prevent injection in email HTML bodies.
 internal fun String.escapeHtml(): String =

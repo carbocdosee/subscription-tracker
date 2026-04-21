@@ -6,7 +6,10 @@ import com.saastracker.domain.dto.SubscriptionFilter
 import com.saastracker.domain.model.AuditLogEntry
 import com.saastracker.domain.model.Company
 import com.saastracker.domain.model.EmailDeliveryLog
+import com.saastracker.domain.model.EmailTemplateType
 import com.saastracker.domain.model.RenewalAlert
+import com.saastracker.domain.model.SavingsEvent
+import com.saastracker.domain.model.SavingsEventType
 import com.saastracker.domain.model.SpendSnapshot
 import com.saastracker.domain.model.Subscription
 import com.saastracker.domain.model.SubscriptionComment
@@ -14,6 +17,7 @@ import com.saastracker.domain.model.SubscriptionPayment
 import com.saastracker.domain.model.TeamInvitation
 import com.saastracker.domain.model.User
 import com.saastracker.domain.model.UserRole
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -24,6 +28,8 @@ interface CompanyRepository {
     fun findById(id: UUID): Company?
     fun findByDomain(domain: String): Company?
     fun findByStripeCustomerId(stripeCustomerId: String): Company?
+    fun delete(id: UUID)
+    fun findAllWithDigestEnabled(): List<Company>
     @Deprecated("Use targeted queries instead of loading all companies")
     fun listAll(): List<Company>
 }
@@ -34,6 +40,7 @@ interface UserRepository {
     fun findById(id: UUID): User?
     fun findByEmail(email: String): User?
     fun listByCompany(companyId: UUID): List<User>
+    fun deactivate(id: UUID)
 }
 
 interface SubscriptionRepository {
@@ -45,6 +52,12 @@ interface SubscriptionRepository {
     fun listRenewingBetween(companyId: UUID, from: LocalDate, to: LocalDate): List<Subscription>
     fun listActiveByCompany(companyId: UUID): List<Subscription>
     fun listByCompanyPaged(companyId: UUID, filter: SubscriptionFilter, pageRequest: PageRequest): Page<Subscription>
+    /** Sets last_used_at = [now] and is_zombie = false. Returns the updated subscription, or null if not found. */
+    fun markUsed(id: UUID, companyId: UUID, now: Instant): Subscription?
+    /** Sets is_zombie flag without touching last_used_at. */
+    fun markZombie(id: UUID, isZombie: Boolean, now: Instant)
+    /** Lists non-archived subscriptions owned by a specific user in the company. */
+    fun listActiveByOwner(companyId: UUID, ownerId: UUID): List<Subscription>
 }
 
 interface RenewalAlertRepository {
@@ -57,6 +70,7 @@ interface RenewalAlertRepository {
 interface AuditLogRepository {
     fun append(entry: AuditLogEntry): AuditLogEntry
     fun listByCompany(companyId: UUID): List<AuditLogEntry>
+    fun deleteOlderThan(cutoff: Instant)
 }
 
 interface TeamInvitationRepository {
@@ -66,12 +80,17 @@ interface TeamInvitationRepository {
     fun findByToken(token: String): TeamInvitation?
     fun findByCompanyAndEmail(companyId: UUID, email: String): TeamInvitation?
     fun listActiveByCompany(companyId: UUID, now: Instant): List<TeamInvitation>
+    fun countCreatedSince(companyId: UUID, since: Instant): Long
 }
 
 interface EmailDeliveryRepository {
     fun create(entry: EmailDeliveryLog): EmailDeliveryLog
     fun listByInvitation(invitationId: UUID, limit: Int = 20): List<EmailDeliveryLog>
     fun listByCompany(companyId: UUID, limit: Int = 100): List<EmailDeliveryLog>
+    fun listByRecipientEmail(email: String): List<EmailDeliveryLog>
+    /** Returns true if a delivery of [templateType] was recorded for this company since the start of the current ISO week (Monday 00:00 UTC). */
+    fun existsSentThisWeek(companyId: UUID, templateType: EmailTemplateType): Boolean
+    fun deleteOlderThan(cutoff: Instant)
 }
 
 interface NotificationReadRepository {
@@ -88,6 +107,8 @@ interface SubscriptionCommentRepository {
 interface SubscriptionPaymentRepository {
     fun create(payment: SubscriptionPayment): SubscriptionPayment
     fun listBySubscription(companyId: UUID, subscriptionId: UUID): List<SubscriptionPayment>
+    /** Returns the most recent payments for the company, ordered by paidAt DESC. */
+    fun listRecentByCompany(companyId: UUID, limit: Int = 400): List<SubscriptionPayment>
 }
 
 interface SpendSnapshotRepository {
@@ -121,6 +142,28 @@ interface RefreshTokenRepository {
     fun revoke(id: UUID)
     fun revokeAllForUser(userId: UUID)
     fun deleteExpired()
+}
+
+data class PasswordResetTokenRecord(
+    val id: UUID,
+    val userId: UUID,
+    val tokenHash: String,
+    val expiresAt: Instant,
+    val usedAt: Instant?
+)
+
+interface PasswordResetRepository {
+    fun create(userId: UUID, tokenHash: String, expiresAt: Instant): UUID
+    fun findByHash(tokenHash: String): PasswordResetTokenRecord?
+    fun markUsed(id: UUID)
+    fun deleteExpiredForUser(userId: UUID)
+    fun deleteAllExpired()
+}
+
+interface SavingsEventRepository {
+    fun record(event: SavingsEvent)
+    fun listByCompany(companyId: UUID): List<SavingsEvent>
+    fun sumByCompany(companyId: UUID): Map<SavingsEventType, BigDecimal>
 }
 
 interface IdentityProvider {

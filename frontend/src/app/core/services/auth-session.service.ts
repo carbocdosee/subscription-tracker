@@ -1,6 +1,7 @@
 import { Injectable, computed, signal } from "@angular/core";
 import { Router } from "@angular/router";
 import { AuthTokenService } from "./auth-token.service";
+import { PlanTier } from "../../shared/models";
 
 const JWT_EXP_SKEW_SECONDS = 10;
 
@@ -8,6 +9,7 @@ const JWT_EXP_SKEW_SECONDS = 10;
 export class AuthSessionService {
   private readonly tokenState = signal<string | null>(this.sanitizeToken(this.tokenService.token));
   readonly isAuthenticated = computed(() => Boolean(this.tokenState()));
+  readonly planTier = signal<PlanTier>("FREE");
   readonly currentUserRole = computed((): "ADMIN" | "EDITOR" | "VIEWER" | null => {
     const token = this.tokenState();
     if (!token) return null;
@@ -18,6 +20,32 @@ export class AuthSessionService {
       const role = payload.role;
       if (role === "ADMIN" || role === "EDITOR" || role === "VIEWER") return role;
       return null;
+    } catch {
+      return null;
+    }
+  });
+
+  readonly currentUserEmail = computed((): string | null => {
+    const token = this.tokenState();
+    if (!token) return null;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    try {
+      const payload = JSON.parse(this.base64UrlDecode(parts[1])) as { email?: string };
+      return payload.email ?? null;
+    } catch {
+      return null;
+    }
+  });
+
+  readonly userId = computed((): string | null => {
+    const token = this.tokenState();
+    if (!token) return null;
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    try {
+      const payload = JSON.parse(this.base64UrlDecode(parts[1])) as { sub?: string; userId?: string };
+      return payload.sub ?? payload.userId ?? null;
     } catch {
       return null;
     }

@@ -1,0 +1,39 @@
+# SSL setup overlay — run ONCE to obtain Let's Encrypt certificate:
+#
+#   1. Replace YOUR_DOMAIN in this file and nginx/nginx.ssl.conf
+#   2. Run: docker compose -f docker-compose.yml -f docker-compose.ssl.yml run --rm certbot
+#   3. Switch nginx to SSL config:
+#        cp nginx/nginx.ssl.conf nginx/nginx.conf
+#        # Replace YOUR_DOMAIN with actual domain in nginx/nginx.conf
+#   4. Update docker-compose.yml nginx ports: add "443:443", add certbot volumes
+#   5. Restart: docker compose up -d nginx
+#
+# Auto-renewal (add to VPS crontab):
+#   0 3 * * * cd /opt/saas-tracker && docker compose -f docker-compose.yml -f docker-compose.ssl.yml run --rm certbot renew --quiet && docker compose exec nginx nginx -s reload
+
+services:
+  nginx:
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.ssl.conf:/etc/nginx/nginx.conf:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    command: >
+      certonly --webroot
+      --webroot-path=/var/www/certbot
+      --email YOUR_EMAIL
+      --agree-tos
+      --no-eff-email
+      -d YOUR_DOMAIN
+      -d www.YOUR_DOMAIN
+
+volumes:
+  certbot_webroot:
+  letsencrypt:

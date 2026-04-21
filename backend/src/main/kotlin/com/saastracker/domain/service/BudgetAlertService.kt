@@ -29,10 +29,7 @@ class BudgetAlertService(
     fun checkAllCompanies() {
         val now = clock.nowDate()
         companyRepository.listAll()
-            .filter {
-                it.subscriptionStatus == CompanySubscriptionStatus.ACTIVE ||
-                    it.subscriptionStatus == CompanySubscriptionStatus.TRIAL
-            }
+            .filter { it.subscriptionStatus == CompanySubscriptionStatus.TRIAL }
             .forEach { company -> checkCompany(company, now.year, now.monthValue) }
     }
 

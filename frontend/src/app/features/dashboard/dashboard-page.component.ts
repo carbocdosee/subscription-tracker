@@ -1,24 +1,47 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from "@angular/core";
 import { CommonModule } from "@angular/common";
-import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
+import { Router, RouterLink } from "@angular/router";
+import { takeUntilDestroyed, toObservable } from "@angular/core/rxjs-interop";
+import { filter, switchMap, take } from "rxjs";
 import { TableModule } from "primeng/table";
 import { TagModule } from "primeng/tag";
 import { TooltipModule } from "primeng/tooltip";
 import { ChartModule } from "primeng/chart";
+import { ButtonModule } from "primeng/button";
 import { TrackerApiService } from "../../core/services/tracker-api.service";
+import { AuthSessionService } from "../../core/services/auth-session.service";
 import { I18nService } from "../../core/services/i18n.service";
-import { DashboardStats } from "../../shared/models";
+import { DashboardStats, RoiStats, WeeklyInsights } from "../../shared/models";
+import { InsightsBarComponent } from "../../shared/components/insights-bar.component";
 
 @Component({
   standalone: true,
   selector: "app-dashboard-page",
-  imports: [CommonModule, TableModule, TagModule, TooltipModule, ChartModule],
+  imports: [CommonModule, RouterLink, TableModule, TagModule, TooltipModule, ChartModule, ButtonModule, InsightsBarComponent],
   template: `
     <h2 class="page-title">{{ i18n.t().dashboardTitle }}</h2>
     <p class="section-subtitle">{{ i18n.t().dashboardSubtitle }}</p>
     <div *ngIf="loading(); else content" class="card">{{ i18n.t().loadingDashboard }}</div>
 
     <ng-template #content>
+      <!-- Zero-state: no subscriptions yet -->
+      <div *ngIf="isZeroState(); else dashboardContent" class="card zero-state">
+        <i class="pi pi-inbox zero-state-icon"></i>
+        <h3>{{ i18n.t().dashboardZeroTitle }}</h3>
+        <p>{{ i18n.t().dashboardZeroBody }}</p>
+        <button
+          *ngIf="canEdit()"
+          pButton
+          type="button"
+          [label]="i18n.t().dashboardZeroBtn"
+          icon="pi pi-plus"
+          (click)="goToSubscriptions()"
+        ></button>
+      </div>
+
+      <ng-template #dashboardContent>
+      <app-insights-bar [insights]="insights()"></app-insights-bar>
+
       <div class="kpi-grid" *ngIf="stats() as s; else noStats">
         <article class="kpi-card">
           <p class="kpi-label">{{ i18n.t().kpiMonthlySpend }}</p>
@@ -38,17 +61,23 @@ import { DashboardStats } from "../../shared/models";
           <span class="kpi-hint">{{ i18n.t().kpiTrackedCategories }} {{ categoryChartData().length }}</span>
         </article>
 
-        <article class="kpi-card">
+        <article class="kpi-card" [class.kpi-locked-card]="session.planTier() === 'FREE'">
           <p class="kpi-label">
             {{ i18n.t().kpiYoySpend }}
             <i
+              *ngIf="session.planTier() !== 'FREE'"
               class="pi pi-question-circle info-icon"
               [pTooltip]="i18n.t().kpiYoyTooltip"
               tooltipPosition="top"
             ></i>
           </p>
-          <p class="kpi-value">{{ yoyGrowth() }}</p>
-          <span class="kpi-hint">{{ yoyPeriod() }}</span>
+          @if (session.planTier() !== 'FREE') {
+            <p class="kpi-value">{{ yoyGrowth() }}</p>
+            <span class="kpi-hint">{{ yoyPeriod() }}</span>
+          } @else {
+            <p class="kpi-value"><i class="pi pi-lock kpi-lock-icon"></i></p>
+            <a class="kpi-upgrade-link" routerLink="/billing/plans">{{ i18n.t().upgradeLink }}</a>
+          }
         </article>
 
         <article class="kpi-card accent">
@@ -62,6 +91,12 @@ import { DashboardStats } from "../../shared/models";
           </p>
           <p class="kpi-value">{{ currency(s.potentialSavings) }}</p>
           <span class="kpi-hint">{{ i18n.t().kpiDuplicateWarnings }} {{ s.duplicateWarnings.length }}</span>
+        </article>
+
+        <article class="kpi-card kpi-roi">
+          <p class="kpi-label">{{ i18n.t().kpiSavedWithProduct }}</p>
+          <p class="kpi-value">{{ currency(roiStats()?.totalSavedUsd ?? 0) }}</p>
+          <span class="kpi-hint">{{ i18n.t().kpiSavedWithProductHint }} {{ roiStats()?.zombieArchivedCount ?? 0 }}</span>
         </article>
       </div>
 
@@ -185,26 +220,38 @@ import { DashboardStats } from "../../shared/models";
         </div>
       </section>
 
-      <section class="card mt-3" *ngIf="(stats()?.duplicateWarnings?.length ?? 0) > 0">
-        <div class="section-head">
-          <h3>{{ i18n.t().duplicateToolingWarnings }}</h3>
-          <p-tag [value]="i18n.t().optimizationOpportunity" severity="info"></p-tag>
-        </div>
-        <ul class="warnings">
-          <li *ngFor="let warning of stats()?.duplicateWarnings">
-            <strong>{{ warning.type }}</strong>
-            <span>{{ warning.key }} ({{ warning.subscriptionIds.length }} tools)</span>
-            <span class="savings">{{ i18n.t().estimatedSavings }} {{ currency(warning.estimatedSavingsUsd) }}</span>
-          </li>
-        </ul>
-      </section>
+      </ng-template><!-- end #dashboardContent -->
     </ng-template>
   `,
   styles: [
     `
+      .zero-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 48px 24px;
+        gap: 12px;
+        margin-top: 8px;
+      }
+      .zero-state-icon {
+        font-size: 3rem;
+        color: #93c5fd;
+      }
+      .zero-state h3 {
+        margin: 0;
+        font-size: 1.3rem;
+        color: #1e293b;
+      }
+      .zero-state p {
+        margin: 0;
+        color: #64748b;
+        max-width: 420px;
+        line-height: 1.5;
+      }
       .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 12px;
         margin-top: 8px;
       }
@@ -217,6 +264,28 @@ import { DashboardStats } from "../../shared/models";
       .kpi-card.accent {
         background: linear-gradient(180deg, #eff6ff 0%, #f5faff 100%);
         border-color: #c9dcff;
+      }
+      .kpi-card.kpi-roi {
+        background: linear-gradient(180deg, #f0fdf4 0%, #f7fef9 100%);
+        border-color: #bbf7d0;
+      }
+      .kpi-card.kpi-roi .kpi-value {
+        color: #15803d;
+      }
+      .kpi-card.kpi-locked-card {
+        opacity: 0.75;
+      }
+      .kpi-lock-icon {
+        font-size: 1.4rem;
+        color: #94a3b8;
+      }
+      .kpi-upgrade-link {
+        color: var(--primary-color, #6366f1);
+        font-size: 0.82rem;
+        text-decoration: none;
+      }
+      .kpi-upgrade-link:hover {
+        text-decoration: underline;
       }
       .kpi-label {
         margin: 0;
@@ -436,6 +505,11 @@ import { DashboardStats } from "../../shared/models";
         color: #0c4a6e;
         margin-left: 6px;
       }
+      @media (max-width: 1200px) {
+        .kpi-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
       @media (max-width: 1050px) {
         .kpi-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -459,9 +533,20 @@ import { DashboardStats } from "../../shared/models";
 export class DashboardPageComponent {
   protected readonly i18n = inject(I18nService);
   private readonly api = inject(TrackerApiService);
+  protected readonly session = inject(AuthSessionService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   readonly loading = signal(true);
   readonly stats = signal<DashboardStats | null>(null);
+  readonly insights = signal<WeeklyInsights | null>(null);
+  readonly roiStats = signal<RoiStats | null>(null);
+
+  readonly canEdit = computed(() => this.session.currentUserRole() !== "VIEWER");
+  readonly isZeroState = computed(() => (this.stats()?.subscriptionCount ?? 0) === 0);
+
+  goToSubscriptions(): void {
+    void this.router.navigateByUrl("/subscriptions");
+  }
   readonly yoyGrowth = signal("n/a");
   readonly yoyPeriod = signal("");
   readonly categoryChartData = computed(() =>
@@ -551,9 +636,16 @@ export class DashboardPageComponent {
         }
       });
 
-    this.api
-      .getAnalytics()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+    // Only fetch analytics when plan is PRO or higher.
+    // planTier starts as 'FREE' and resolves async after getBillingStatus() —
+    // so we wait reactively rather than guarding with a one-time check.
+    toObservable(this.session.planTier)
+      .pipe(
+        filter((tier) => tier !== "FREE"),
+        take(1),
+        switchMap(() => this.api.getAnalytics()),
+        takeUntilDestroyed(this.destroyRef)
+      )
       .subscribe({
         next: (result) => {
           const yoy = result.yoySpendComparison;
@@ -561,7 +653,24 @@ export class DashboardPageComponent {
             this.yoyGrowth.set(`${yoy.growthPercent}%`);
             this.yoyPeriod.set(`${yoy.previousYear} → ${yoy.currentYear}`);
           }
-        }
+        },
+        error: () => { /* YoY unavailable — KPI card shows n/a */ }
+      });
+
+    this.api
+      .getWeeklyInsights()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (value) => this.insights.set(value),
+        error: () => { /* insights unavailable — bar remains hidden */ }
+      });
+
+    this.api
+      .getRoiStats()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (value) => this.roiStats.set(value),
+        error: () => { /* ROI unavailable — card shows $0 */ }
       });
   }
 

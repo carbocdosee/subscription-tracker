@@ -69,8 +69,8 @@ data class ResendConfig(
 data class StripeConfig(
     val apiKey: String?,
     val webhookSecret: String?,
-    val monthlyPriceId: String?,
-    val annualPriceId: String?,
+    val proPriceId: String?,
+    val enterprisePriceId: String?,
     val successUrl: String,
     val cancelUrl: String
 )
@@ -89,8 +89,18 @@ data class CorsConfig(
     val allowedOrigins: List<String>
 )
 
-fun ApplicationConfig.toAppConfig(): AppConfig = AppConfig(
-    env = propertyOrNull("app.env")?.getString() ?: "local",
+fun ApplicationConfig.toAppConfig(): AppConfig {
+    val env = propertyOrNull("app.env")?.getString() ?: "local"
+    val tlsTrustAll = property("app.smtp.tlsTrustAll").getString().toBoolean()
+    require(env == "local" || !tlsTrustAll) {
+        "SMTP_TLS_TRUST_ALL must be 'false' in non-local environments (current env=$env). " +
+            "Disabling certificate validation in production exposes email traffic to MITM attacks."
+    }
+    return buildAppConfig(env, tlsTrustAll)
+}
+
+private fun ApplicationConfig.buildAppConfig(env: String, tlsTrustAll: Boolean): AppConfig = AppConfig(
+    env = env,
     database = DatabaseConfig(
         jdbcUrl = property("app.database.jdbcUrl").getString(),
         username = property("app.database.username").getString(),
@@ -131,7 +141,7 @@ fun ApplicationConfig.toAppConfig(): AppConfig = AppConfig(
         fromName = property("app.smtp.fromName").getString(),
         auth = property("app.smtp.auth").getString().toBoolean(),
         startTls = property("app.smtp.startTls").getString().toBoolean(),
-        tlsTrustAll = property("app.smtp.tlsTrustAll").getString().toBoolean(),
+        tlsTrustAll = tlsTrustAll, // pre-validated above
         timeoutMs = property("app.smtp.timeoutMs").getString().toInt(),
         frontendBaseUrl = propertyOrNull("app.frontend.baseUrl")?.getString()?.trimEnd('/') ?: "http://localhost"
     ),
@@ -144,10 +154,12 @@ fun ApplicationConfig.toAppConfig(): AppConfig = AppConfig(
     stripe = StripeConfig(
         apiKey = propertyOrNull("app.stripe.apiKey")?.getString(),
         webhookSecret = propertyOrNull("app.stripe.webhookSecret")?.getString(),
-        monthlyPriceId = propertyOrNull("app.stripe.monthlyPriceId")?.getString(),
-        annualPriceId = propertyOrNull("app.stripe.annualPriceId")?.getString(),
+        proPriceId = propertyOrNull("app.stripe.proPriceId")?.getString()
+            ?: propertyOrNull("app.stripe.monthlyPriceId")?.getString(),  // legacy fallback
+        enterprisePriceId = propertyOrNull("app.stripe.enterprisePriceId")?.getString()
+            ?: propertyOrNull("app.stripe.annualPriceId")?.getString(),   // legacy fallback
         successUrl = propertyOrNull("app.stripe.successUrl")?.getString() ?: "http://localhost/dashboard?upgraded=true",
-        cancelUrl = propertyOrNull("app.stripe.cancelUrl")?.getString() ?: "http://localhost/billing/upgrade"
+        cancelUrl = propertyOrNull("app.stripe.cancelUrl")?.getString() ?: "http://localhost/billing/plans"
     ),
     scheduler = SchedulerConfig(
         renewalCron = property("app.scheduler.renewalCron").getString()

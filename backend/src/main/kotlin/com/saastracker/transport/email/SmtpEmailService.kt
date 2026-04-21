@@ -2,6 +2,7 @@ package com.saastracker.transport.email
 
 import com.saastracker.config.SmtpConfig
 import com.saastracker.domain.model.Company
+import com.saastracker.domain.model.Subscription
 import jakarta.mail.Authenticator
 import java.math.BigDecimal
 import jakarta.mail.Message
@@ -52,6 +53,27 @@ class SmtpEmailService(
         )
     }
 
+    override fun sendPasswordResetEmail(email: String, token: String): EmailDeliveryResult {
+        val resetLink = "${config.frontendBaseUrl}/reset-password?token=$token"
+        return sendEmail(
+            recipients = listOf(email),
+            subject = "Reset your password",
+            html = buildPasswordResetEmail(resetLink)
+        )
+    }
+
+    override fun sendWeeklyDigest(
+        company: Company,
+        recipients: List<String>,
+        renewals: List<SubscriptionWithDaysLeft>,
+        zombies: List<Subscription>,
+        monthlySpend: BigDecimal
+    ) {
+        if (recipients.isEmpty()) return
+        val content = buildWeeklyDigestEmail(company, renewals, zombies, monthlySpend)
+        sendEmail(recipients = recipients, subject = content.subject, html = content.html)
+    }
+
     override fun sendTeamInviteEmail(email: String, token: String): EmailDeliveryResult {
         val inviteLink = "${config.frontendBaseUrl}/accept-invite?token=$token"
         val html = """
@@ -63,7 +85,7 @@ class SmtpEmailService(
                   <a href="$inviteLink" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;">
                     Accept invite
                   </a>
-                  <p style="font-size:12px;color:#64748b;margin-top:18px;">This invitation expires in 7 days.</p>
+                  <p style="font-size:12px;color:#64748b;margin-top:18px;">This invitation expires in 2 days.</p>
                 </div>
               </body>
             </html>

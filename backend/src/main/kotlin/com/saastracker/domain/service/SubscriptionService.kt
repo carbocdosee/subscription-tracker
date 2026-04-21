@@ -16,18 +16,23 @@ import com.saastracker.domain.model.SubscriptionComment
 import com.saastracker.domain.model.SubscriptionPayment
 import com.saastracker.domain.model.SubscriptionStatus
 import com.saastracker.domain.model.User
+import com.saastracker.domain.model.SavingsEvent
+import com.saastracker.domain.model.SavingsEventType
 import com.saastracker.persistence.repository.AuditLogRepository
 import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.IdentityProvider
+import com.saastracker.persistence.repository.SavingsEventRepository
 import com.saastracker.persistence.repository.SubscriptionCommentRepository
 import com.saastracker.persistence.repository.SubscriptionPaymentRepository
 import com.saastracker.persistence.repository.SubscriptionRepository
+import com.saastracker.transport.http.request.BatchSubscriptionItem
 import com.saastracker.transport.http.request.CreateSubscriptionRequest
 import com.saastracker.transport.http.request.MarkSubscriptionPaidRequest
 import com.saastracker.transport.http.request.UpdateSubscriptionRequest
 import com.saastracker.transport.http.response.CategoriesResponse
 import com.saastracker.util.csvEscape
 import com.saastracker.util.daysUntil
+import com.saastracker.util.levenshteinSimilarity
 import com.saastracker.util.normalizeToMonthly
 import com.saastracker.util.parseCsv
 import org.apache.pdfbox.pdmodel.PDDocument
@@ -48,6 +53,13 @@ data class DuplicateDetection(
     val potentialSavingsUsd: BigDecimal
 )
 
+data class VendorSuggestion(
+    val vendorName: String,
+    val subscriptionId: UUID,
+    val category: String,
+    val similarity: Double
+)
+
 data class CsvImportResult(
     val imported: Int,
     val skipped: Int,
@@ -62,7 +74,8 @@ class SubscriptionService(
     private val currencyService: CurrencyService,
     private val vendorLogoService: VendorLogoService,
     private val idProvider: IdentityProvider,
-    private val clockProvider: ClockProvider
+    private val clockProvider: ClockProvider,
+    private val savingsEventRepository: SavingsEventRepository
 ) {
     companion object {
         val PREDEFINED_CATEGORIES = listOf(
@@ -244,10 +257,76 @@ class SubscriptionService(
             oldValue = """{"status":"${existing.status}","vendorName":"${existing.vendorName}"}""",
             newValue = """{"archivedAt":"$now"}"""
         )
+        if (existing.isZombie) {
+            savingsEventRepository.record(
+                SavingsEvent(
+                    id = idProvider.newId(),
+                    companyId = existing.companyId,
+                    subscriptionId = existing.id,
+                    eventType = SavingsEventType.ZOMBIE_ARCHIVED,
+                    vendorName = existing.vendorName,
+                    amount = existing.amount,
+                    currency = existing.currency,
+                    savedAt = now
+                )
+            )
+        }
         return AppResult.Success(Unit)
     }
 
     fun listArchived(companyId: UUID): List<Subscription> = subscriptionRepository.listArchivedByCompany(companyId)
+
+    fun markUsed(currentUser: User, subscriptionId: UUID): AppResult<Subscription> {
+        val now = clockProvider.nowInstant()
+        val updated = subscriptionRepository.markUsed(subscriptionId, currentUser.companyId, now)
+            ?: return AppResult.Failure(com.saastracker.domain.error.AppError.NotFound("Subscription not found"))
+        recordAudit(currentUser, AuditAction.UPDATED, subscriptionId, null,
+            """{"action":"mark_used","last_used_at":"$now"}""")
+        return AppResult.Success(updated)
+    }
+
+    fun batchCreate(currentUser: User, items: List<BatchSubscriptionItem>): List<Subscription> {
+        val now = clockProvider.nowInstant()
+        return items.map { item ->
+            val renewalDate = LocalDate.parse(item.renewalDate)
+            // Use explicit logoUrl if provided (from template), otherwise resolve from vendorUrl
+            val logoUrl = item.logoUrl ?: vendorLogoService.resolveLogoUrl(item.vendorName, item.vendorUrl)
+            val subscription = Subscription(
+                id = idProvider.newId(),
+                companyId = currentUser.companyId,
+                createdById = currentUser.id,
+                vendorName = item.vendorName.trim(),
+                vendorUrl = item.vendorUrl?.trim(),
+                vendorLogoUrl = logoUrl,
+                category = item.category.trim().lowercase(),
+                description = null,
+                amount = item.amount.toBigDecimal(),
+                currency = item.currency.uppercase(),
+                billingCycle = item.billingCycle,
+                renewalDate = renewalDate,
+                contractStartDate = null,
+                autoRenews = true,
+                paymentMode = PaymentMode.AUTO,
+                paymentStatus = PaymentStatus.PAID,
+                status = SubscriptionStatus.ACTIVE,
+                tags = emptyList(),
+                ownerId = null,
+                notes = null,
+                documentUrl = null,
+                createdAt = now,
+                updatedAt = now
+            )
+            val created = subscriptionRepository.create(subscription)
+            recordAudit(
+                currentUser = currentUser,
+                action = AuditAction.CREATED,
+                entityId = created.id,
+                oldValue = null,
+                newValue = """{"vendor":"${created.vendorName}","amount":"${created.amount}","currency":"${created.currency}","source":"batch"}"""
+            )
+            created
+        }
+    }
 
     fun getCategories(companyId: UUID): CategoriesResponse {
         val custom = subscriptionRepository.listByCompany(companyId)
@@ -278,6 +357,32 @@ class SubscriptionService(
             }
 
         return DuplicateDetection(warnings.distinct(), potentialSavings)
+    }
+
+    fun suggestVendors(companyId: UUID, query: String, limit: Int = 5): List<VendorSuggestion> {
+        if (query.isBlank()) return emptyList()
+        val q = query.trim().lowercase()
+        return subscriptionRepository.listByCompany(companyId)
+            .distinctBy { it.vendorName.lowercase() }
+            .map { sub ->
+                VendorSuggestion(
+                    vendorName = sub.vendorName,
+                    subscriptionId = sub.id,
+                    category = sub.category,
+                    similarity = levenshteinSimilarity(q, sub.vendorName.lowercase())
+                )
+            }
+            .filter { it.similarity >= 0.3 }
+            .sortedByDescending { it.similarity }
+            .take(limit)
+    }
+
+    fun detectDuplicatesByVendor(companyId: UUID, candidateVendorName: String): List<String> {
+        if (candidateVendorName.isBlank()) return emptyList()
+        val candidate = candidateVendorName.trim().lowercase()
+        return subscriptionRepository.listByCompany(companyId)
+            .filter { levenshteinSimilarity(candidate, it.vendorName.lowercase()) >= 0.80 }
+            .map { "Similar vendor already exists: ${it.vendorName} (id=${it.id})" }
     }
 
     fun calculateHealthScore(subscription: Subscription, viewerClock: Clock = Clock.systemUTC()): HealthScore {

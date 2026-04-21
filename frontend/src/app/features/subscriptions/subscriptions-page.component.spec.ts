@@ -16,7 +16,8 @@ describe("SubscriptionsPageComponent", () => {
             getSubscriptions: () => of({ items: [] }),
             createSubscription: () => of({}),
             importCsv: () => of({ imported: 0, skipped: 0, errors: [] }),
-            getCategories: () => of({ predefined: [], custom: [] })
+            getCategories: () => of({ predefined: [], custom: [] }),
+            getMembers: () => of({ items: [] })
           }
         },
         {

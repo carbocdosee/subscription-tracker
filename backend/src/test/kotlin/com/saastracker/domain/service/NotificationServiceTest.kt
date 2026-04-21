@@ -18,6 +18,7 @@ import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.NotificationReadRepository
 import com.saastracker.persistence.repository.RenewalAlertRepository
+import com.saastracker.persistence.repository.SubscriptionPaymentRepository
 import com.saastracker.persistence.repository.SubscriptionRepository
 import com.saastracker.persistence.repository.TeamInvitationRepository
 import io.mockk.every
@@ -38,6 +39,7 @@ class NotificationServiceTest {
     private val renewalAlertRepository = mockk<RenewalAlertRepository>()
     private val notificationReadRepository = mockk<NotificationReadRepository>(relaxed = true)
     private val clockProvider = mockk<ClockProvider>()
+    private val paymentRepository = mockk<SubscriptionPaymentRepository>(relaxed = true)
 
     private val service = NotificationService(
         subscriptionRepository = subscriptionRepository,
@@ -45,7 +47,8 @@ class NotificationServiceTest {
         emailDeliveryRepository = emailDeliveryRepository,
         renewalAlertRepository = renewalAlertRepository,
         notificationReadRepository = notificationReadRepository,
-        clock = clockProvider
+        clock = clockProvider,
+        paymentRepository = paymentRepository
     )
 
     @Test

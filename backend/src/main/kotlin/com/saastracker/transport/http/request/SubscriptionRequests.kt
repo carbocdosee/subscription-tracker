@@ -64,3 +64,21 @@ data class MarkSubscriptionPaidRequest(
 data class AnalyticsQueryRequest(
     val employeeCount: Int? = null
 )
+
+@Serializable
+data class BatchSubscriptionItem(
+    val templateId: String? = null,
+    val vendorName: String,
+    val category: String,
+    val amount: String,
+    val currency: String = "USD",
+    val billingCycle: BillingCycle,
+    val renewalDate: String,
+    val vendorUrl: String? = null,
+    val logoUrl: String? = null
+)
+
+@Serializable
+data class BatchCreateRequest(
+    val items: List<BatchSubscriptionItem>
+)

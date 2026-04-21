@@ -1,0 +1,41 @@
+# LOCAL DEVELOPMENT ONLY
+# This file must be explicitly passed to Docker Compose — it is NOT auto-merged.
+#
+# Start for local development:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Start for production (no ports exposed, no mailpit):
+#   docker compose up -d
+
+services:
+  # ============================================================
+  # Mailpit — catches all outgoing emails, displays in web UI.
+  # Access UI at http://localhost:8025
+  # Does NOT deliver to real inboxes.
+  # ============================================================
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: saas_tracker_mailpit
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/livez || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+
+  backend:
+    depends_on:
+      mailpit:
+        condition: service_healthy
+
+  # Expose DB ports for local development tools (TablePlus, DBeaver, etc.)
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

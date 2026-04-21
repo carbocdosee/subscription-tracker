@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from "@angular/core";
 import { CommonModule } from "@angular/common";
-import { ActivatedRoute, Router } from "@angular/router";
+import { ActivatedRoute, Router, RouterLink } from "@angular/router";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { CardModule } from "primeng/card";
@@ -8,6 +8,7 @@ import { TabViewModule } from "primeng/tabview";
 import { InputTextModule } from "primeng/inputtext";
 import { PasswordModule } from "primeng/password";
 import { ButtonModule } from "primeng/button";
+import { CheckboxModule } from "primeng/checkbox";
 import { TrackerApiService } from "../../core/services/tracker-api.service";
 import { AuthSessionService } from "../../core/services/auth-session.service";
 import { I18nService } from "../../core/services/i18n.service";
@@ -18,16 +19,18 @@ import { I18nService } from "../../core/services/i18n.service";
   imports: [
     CommonModule,
     ReactiveFormsModule,
+    RouterLink,
     CardModule,
     TabViewModule,
     InputTextModule,
     PasswordModule,
-    ButtonModule
+    ButtonModule,
+    CheckboxModule
   ],
   template: `
     <section class="auth-shell fade-in">
       <p-card styleClass="auth-card">
-        <h1 class="auth-title">Subscription Tracker</h1>
+        <h1 class="auth-title">{{ i18n.t().authHeroTitle }}</h1>
         <p class="auth-subtitle">{{ i18n.t().authSubtitle }}</p>
 
         <p-tabView [(activeIndex)]="activeTab">
@@ -46,6 +49,7 @@ import { I18nService } from "../../core/services/i18n.service";
               />
 
               <button pButton type="submit" [label]="i18n.t().btnSignIn" [loading]="loginLoading()"></button>
+              <a routerLink="/forgot-password" class="forgot-link">{{ i18n.t().forgotPassword }}</a>
             </form>
           </p-tabPanel>
 
@@ -74,6 +78,19 @@ import { I18nService } from "../../core/services/i18n.service";
 
               <label>{{ i18n.t().fieldMonthlyBudgetOptional }}</label>
               <input pInputText formControlName="monthlyBudget" placeholder="2500.00" />
+
+              <div class="consent-row">
+                <p-checkbox formControlName="gdprConsent" [binary]="true" inputId="gdprConsent" />
+                <label for="gdprConsent" class="consent-label">
+                  {{ i18n.t().gdprConsentPrefix }}
+                  <a routerLink="/privacy" target="_blank" rel="noopener">{{ i18n.t().privacyPolicy }}</a>
+                  {{ i18n.t().gdprConsentAnd }}
+                  <a routerLink="/terms" target="_blank" rel="noopener">{{ i18n.t().termsOfService }}</a>{{ i18n.t().gdprConsentSuffix }}
+                </label>
+              </div>
+              @if (registerForm.get('gdprConsent')?.invalid && registerForm.get('gdprConsent')?.touched) {
+                <small class="consent-error">{{ i18n.t().gdprConsentError }}</small>
+              }
 
               <button pButton type="submit" [label]="i18n.t().btnCreateAccount" [loading]="registerLoading()"></button>
             </form>
@@ -114,6 +131,32 @@ import { I18nService } from "../../core/services/i18n.service";
       .auth-form button {
         margin-top: 10px;
       }
+      .consent-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .consent-label {
+        font-size: 0.875rem;
+        color: #475569;
+        line-height: 1.4;
+      }
+      .consent-label a {
+        color: var(--primary-color, #6366f1);
+        text-decoration: underline;
+      }
+      .consent-error {
+        color: #ef4444;
+        font-size: 0.8rem;
+      }
+      .forgot-link {
+        display: inline-block;
+        margin-top: 6px;
+        color: #0c4a6e;
+        text-decoration: none;
+        font-size: 13px;
+      }
     `
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -138,11 +181,12 @@ export class AuthPageComponent {
 
   readonly registerForm = this.fb.nonNullable.group({
     companyName: ["", [Validators.required, Validators.minLength(2)]],
-    companyDomain: ["", [Validators.required, Validators.minLength(3)]],
+    companyDomain: [""],
     fullName: ["", [Validators.required, Validators.minLength(2)]],
     email: ["", [Validators.required, Validators.email]],
     password: ["", [Validators.required, Validators.minLength(10)]],
-    monthlyBudget: [""]
+    monthlyBudget: [""],
+    gdprConsent: [false, [Validators.requiredTrue]]
   });
 
   login(): void {
@@ -180,7 +224,8 @@ export class AuthPageComponent {
         fullName: form.fullName.trim(),
         email: form.email.trim(),
         password: form.password,
-        monthlyBudget: form.monthlyBudget.trim() === "" ? null : form.monthlyBudget.trim()
+        monthlyBudget: form.monthlyBudget.trim() === "" ? null : form.monthlyBudget.trim(),
+        gdprConsent: form.gdprConsent
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({

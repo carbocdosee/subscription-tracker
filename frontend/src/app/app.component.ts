@@ -8,15 +8,18 @@ import { filter, timer } from "rxjs";
 import { AuthSessionService } from "./core/services/auth-session.service";
 import { TrackerApiService } from "./core/services/tracker-api.service";
 import { I18nService } from "./core/services/i18n.service";
-import { NotificationItem } from "./shared/models";
+import { NotificationItem, PlanTier } from "./shared/models";
 import { OnboardingWizardComponent } from "./features/onboarding/onboarding-wizard.component";
+import { CookieConsentBannerComponent } from "./shared/components/cookie-consent-banner.component";
+import { InactivityService } from "./core/services/inactivity.service";
 
 @Component({
   selector: "app-root",
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgIf, NgFor, NgClass, DatePipe, ButtonModule, ToastModule, OnboardingWizardComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgIf, NgFor, NgClass, DatePipe, ButtonModule, ToastModule, OnboardingWizardComponent, CookieConsentBannerComponent],
   template: `
     <p-toast position="top-right" />
+    <app-cookie-consent-banner />
     <app-onboarding-wizard *ngIf="showOnboarding()" (wizardCompleted)="onOnboardingCompleted()" />
     <div class="app-shell" (click)="closeOverlays()">
       <ng-container *ngIf="showAppShell(); else authOutlet">
@@ -128,7 +131,7 @@ import { OnboardingWizardComponent } from "./features/onboarding/onboarding-wiza
           <a routerLink="/subscriptions" routerLinkActive="active"><i class="pi pi-briefcase"></i> {{ i18n.t().navSubscriptions }}</a>
           <a routerLink="/analytics" routerLinkActive="active"><i class="pi pi-chart-bar"></i> {{ i18n.t().navAnalytics }}</a>
           <a routerLink="/team" routerLinkActive="active"><i class="pi pi-users"></i> {{ i18n.t().navTeam }}</a>
-          <a *ngIf="isAdmin()" routerLink="/settings/account" routerLinkActive="active"><i class="pi pi-cog"></i> {{ i18n.t().navSettings }}</a>
+          <a routerLink="/account" routerLinkActive="active"><i class="pi pi-user"></i> {{ i18n.t().navAccount }}</a>
         </nav>
       </ng-container>
 
@@ -408,6 +411,7 @@ export class AppComponent {
   private readonly api = inject(TrackerApiService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly inactivity = inject(InactivityService);
   private readonly currentUrl = signal(this.router.url);
 
   readonly notificationsOpen = signal(false);
@@ -430,6 +434,8 @@ export class AppComponent {
   private onboardingChecked = false;
 
   constructor() {
+    this.inactivity.start();
+
     effect(() => {
       const shell = this.showAppShell();
       if (!shell) {
@@ -437,6 +443,7 @@ export class AppComponent {
         this.showOnboarding.set(false);
         return;
       }
+      this.refreshPlanTier();
       if (!this.onboardingChecked && this.session.currentUserRole() === "ADMIN") {
         this.onboardingChecked = true;
         this.checkOnboarding();
@@ -546,6 +553,15 @@ export class AppComponent {
 
   onOnboardingCompleted(): void {
     this.showOnboarding.set(false);
+  }
+
+  private refreshPlanTier(): void {
+    this.api
+      .getBillingStatus()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.session.planTier.set(result.planTier as PlanTier)
+      });
   }
 
   private checkOnboarding(): void {

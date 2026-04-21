@@ -144,6 +144,17 @@ class SubscriptionIntegrationTest {
                 currentSpend: BigDecimal,
                 budget: BigDecimal
             ) { /* stub */ }
+
+            override fun sendPasswordResetEmail(email: String, token: String): EmailDeliveryResult =
+                EmailDeliveryResult(status = EmailDeliveryStatus.SENT, message = "stub")
+
+            override fun sendWeeklyDigest(
+                company: Company,
+                recipients: List<String>,
+                renewals: List<SubscriptionWithDaysLeft>,
+                zombies: List<com.saastracker.domain.model.Subscription>,
+                monthlySpend: java.math.BigDecimal
+            ) { /* stub */ }
         }
         val alertService = AlertService(
             companyRepository = companyRepository,

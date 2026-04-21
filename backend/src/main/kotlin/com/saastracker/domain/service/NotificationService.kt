@@ -11,6 +11,7 @@ import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.NotificationReadRepository
 import com.saastracker.persistence.repository.RenewalAlertRepository
+import com.saastracker.persistence.repository.SubscriptionPaymentRepository
 import com.saastracker.persistence.repository.SubscriptionRepository
 import com.saastracker.persistence.repository.TeamInvitationRepository
 import java.math.BigDecimal
@@ -44,7 +45,8 @@ class NotificationService(
     private val emailDeliveryRepository: EmailDeliveryRepository,
     private val renewalAlertRepository: RenewalAlertRepository,
     private val notificationReadRepository: NotificationReadRepository,
-    private val clock: ClockProvider
+    private val clock: ClockProvider,
+    private val paymentRepository: SubscriptionPaymentRepository
 ) {
     fun getFeed(
         companyId: UUID,
@@ -253,7 +255,55 @@ class NotificationService(
             }
             .toList()
 
-        return (renewalDue + manualPayments + invitationExpiringSoon + inviteDeliveryIssues + renewalDeliveryIssues)
+        val zombieAlerts = subscriptions
+            .filter { it.isZombie }
+            .map { subscription ->
+                val monthlyCost = when (subscription.billingCycle) {
+                    com.saastracker.domain.model.BillingCycle.ANNUAL ->
+                        subscription.amount.divide(java.math.BigDecimal("12"), 2, java.math.RoundingMode.HALF_UP)
+                    com.saastracker.domain.model.BillingCycle.QUARTERLY ->
+                        subscription.amount.divide(java.math.BigDecimal("3"), 2, java.math.RoundingMode.HALF_UP)
+                    else -> subscription.amount
+                }
+                NotificationCandidate(
+                    key = "zombie_detected:${subscription.id}",
+                    type = NotificationType.ZOMBIE_DETECTED,
+                    severity = NotificationSeverity.WARNING,
+                    title = "${subscription.vendorName} may be unused",
+                    message = "No activity detected · ${subscription.currency} $monthlyCost/mo wasted",
+                    createdAt = subscription.updatedAt,
+                    sortAt = subscription.updatedAt,
+                    actionPath = "/subscriptions?zombie=true",
+                    actionLabel = "Review"
+                )
+            }
+
+        val recentPayments = paymentRepository.listRecentByCompany(companyId)
+        val paymentsBySubscription = recentPayments.groupBy { it.subscriptionId }
+        val priceIncreaseAlerts = subscriptions.mapNotNull { sub ->
+            val payments = paymentsBySubscription[sub.id]?.sortedByDescending { it.paidAt } ?: return@mapNotNull null
+            if (payments.size < 2) return@mapNotNull null
+            val newest = payments[0]
+            val previous = payments[1]
+            if (previous.amount <= BigDecimal.ZERO) return@mapNotNull null
+            val changePercent = (newest.amount - previous.amount)
+                .divide(previous.amount, 4, java.math.RoundingMode.HALF_UP)
+                .multiply(BigDecimal("100"))
+            if (changePercent <= BigDecimal.ZERO) return@mapNotNull null
+            NotificationCandidate(
+                key = "price_change:${sub.id}",
+                type = NotificationType.PRICE_INCREASED,
+                severity = NotificationSeverity.WARNING,
+                title = "${sub.vendorName} price increased",
+                message = "${formatAmount(previous.amount, previous.currency)} → ${formatAmount(newest.amount, newest.currency)} (+${changePercent.setScale(1, java.math.RoundingMode.HALF_UP)}%)",
+                createdAt = newest.paidAt.atStartOfDay().toInstant(ZoneOffset.UTC),
+                sortAt = newest.paidAt.atStartOfDay().toInstant(ZoneOffset.UTC),
+                actionPath = "/subscriptions",
+                actionLabel = "Review"
+            )
+        }
+
+        return (renewalDue + manualPayments + invitationExpiringSoon + inviteDeliveryIssues + renewalDeliveryIssues + zombieAlerts + priceIncreaseAlerts)
             .asSequence()
             .filter { typeFilter.isEmpty() || it.type in typeFilter }
             .distinctBy { it.key }

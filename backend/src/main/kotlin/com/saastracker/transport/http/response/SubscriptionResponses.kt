@@ -31,6 +31,8 @@ data class SubscriptionResponse(
     val documentUrl: String? = null,
     val healthScore: String,
     val duplicateWarnings: List<String>,
+    val lastUsedAt: String? = null,
+    val isZombie: Boolean = false,
     val createdAt: String,
     val updatedAt: String
 )
@@ -69,4 +71,13 @@ data class CommentResponse(
 data class CategoriesResponse(
     val predefined: List<String>,
     val custom: List<String>
+)
+
+@Serializable
+data class BatchCreateResponse(
+    val created: Int,
+    val skipped: Int,
+    val reason: String? = null,
+    val requiredPlan: String? = null,
+    val subscriptions: List<SubscriptionResponse>
 )

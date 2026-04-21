@@ -10,7 +10,8 @@ data class RegisterRequest(
     val fullName: String,
     val email: String,
     val password: String,
-    val monthlyBudget: String? = null
+    val monthlyBudget: String? = null,
+    val gdprConsent: Boolean = false
 )
 
 @Serializable
@@ -45,9 +46,23 @@ data class OnboardingSettings(
 )
 
 @Serializable
+data class ForgotPasswordRequest(
+    val email: String
+)
+
+@Serializable
+data class ResetPasswordRequest(
+    val token: String,
+    val newPassword: String
+)
+
+@Serializable
 data class UpdateCompanyRequest(
     val monthlyBudget: String? = null,
     val employeeCount: Int? = null,
-    val onboarding: OnboardingSettings? = null
+    val onboarding: OnboardingSettings? = null,
+    val weeklyDigestEnabled: Boolean? = null,
+    val timezone: String? = null,
+    val zombieThresholdDays: Int? = null
 )
 

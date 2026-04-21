@@ -1,5 +1,6 @@
 package com.saastracker.transport.http.routes
 
+import com.saastracker.domain.model.PlanFeature
 import com.saastracker.domain.service.AuthService
 import com.saastracker.domain.service.InviteMemberResult
 import com.saastracker.domain.validation.validateAcceptInvite
@@ -10,9 +11,11 @@ import com.saastracker.persistence.repository.CompanyRepository
 import com.saastracker.persistence.repository.UserRepository
 import com.saastracker.transport.payment.StripeBillingService
 import com.saastracker.transport.http.request.AcceptInviteRequest
+import com.saastracker.transport.http.request.ForgotPasswordRequest
 import com.saastracker.transport.http.request.InviteMemberRequest
 import com.saastracker.transport.http.request.LoginRequest
 import com.saastracker.transport.http.request.RegisterRequest
+import com.saastracker.transport.http.request.ResetPasswordRequest
 import com.saastracker.transport.http.request.UpdateUserRoleRequest
 import com.saastracker.transport.http.response.AuthResponse
 import com.saastracker.transport.http.response.EmailDeliveryResponse
@@ -28,9 +31,15 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 private const val REFRESH_COOKIE = "refresh_token"
 private const val REFRESH_MAX_AGE = 30 * 24 * 3600
@@ -120,12 +129,55 @@ fun Route.authRoutes(
             call.response.cookies.append(Cookie(REFRESH_COOKIE, "", maxAge = 0, path = "/"))
             call.respond(HttpStatusCode.NoContent)
         }
+
+        post("/forgot-password") {
+            val request = call.receive<ForgotPasswordRequest>()
+            // Always 200 — prevents email enumeration
+            authService.requestPasswordReset(request.email)
+            call.respond(
+                HttpStatusCode.OK,
+                mapOf("message" to "If an account with that email exists, a reset link has been sent")
+            )
+        }
+
+        post("/reset-password") {
+            val request = call.receive<ResetPasswordRequest>()
+            if (request.newPassword.length < 10) {
+                call.respond(
+                    HttpStatusCode.UnprocessableEntity,
+                    mapOf("message" to "Password must be at least 10 characters")
+                )
+                return@post
+            }
+            call.respondAppResult(authService.resetPassword(request.token, request.newPassword))
+        }
+    }
+
+    authenticatedRoute("/api/v1/user") {
+        // GDPR Art. 20 — Right to data portability
+        get("/export") {
+            val user = call.requireCurrentUser(userRepository) ?: return@get
+            when (val result = authService.exportPersonalData(user.id)) {
+                is com.saastracker.domain.error.AppResult.Success ->
+                    call.respond(HttpStatusCode.OK, result.value.toJsonElement())
+                is com.saastracker.domain.error.AppResult.Failure ->
+                    call.respondAppResult(result)
+            }
+        }
+
+        // GDPR Art. 17 — Right to erasure
+        delete("/account") {
+            val user = call.requireCurrentUser(userRepository) ?: return@delete
+            call.response.cookies.append(Cookie(REFRESH_COOKIE, "", maxAge = 0, path = "/"))
+            call.respondAppResult(authService.deleteAccount(user.id))
+        }
     }
 
     authenticatedRoute("/api/v1/team", com.saastracker.domain.model.UserRole.ADMIN) {
         post("/invite") {
             val user = call.requireCurrentUser(userRepository) ?: return@post
-            if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@post
+            if (!call.ensurePlanFeature(user, PlanFeature.TEAM_INVITE, companyRepository)) return@post
+            if (!call.ensureTeamQuota(user, companyRepository, userRepository)) return@post
             val request = call.receive<InviteMemberRequest>()
             validateInvite(request)
             when (val result = authService.inviteMember(user, request)) {
@@ -142,7 +194,7 @@ fun Route.authRoutes(
 
         post("/invitations/{id}/resend") {
             val user = call.requireCurrentUser(userRepository) ?: return@post
-            if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@post
+            if (!call.ensurePlanFeature(user, PlanFeature.TEAM_INVITE, companyRepository)) return@post
             val invitationId = call.requireUuidParam("id") ?: return@post
             when (val result = authService.resendInvitation(user, invitationId)) {
                 is com.saastracker.domain.error.AppResult.Success -> {
@@ -155,14 +207,14 @@ fun Route.authRoutes(
 
         delete("/invitations/{id}") {
             val user = call.requireCurrentUser(userRepository) ?: return@delete
-            if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@delete
+            if (!call.ensurePlanFeature(user, PlanFeature.TEAM_INVITE, companyRepository)) return@delete
             val invitationId = call.requireUuidParam("id") ?: return@delete
             call.respondAppResult(authService.cancelInvitation(user, invitationId))
         }
 
         put("/users/{id}/role") {
             val user = call.requireCurrentUser(userRepository) ?: return@put
-            if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@put
+            if (!call.ensurePlanFeature(user, PlanFeature.TEAM_INVITE, companyRepository)) return@put
             val userId = call.requireUuidParam("id") ?: return@put
             val request = call.receive<UpdateUserRoleRequest>()
             when (val result = authService.changeUserRole(user, userId, request.role)) {
@@ -232,4 +284,17 @@ private fun io.ktor.server.application.ApplicationCall.publicOrigin(): String {
         ?: request.headers["Host"]
         ?: "localhost"
     return "$scheme://$host"
+}
+
+private fun Any?.toJsonElement(): JsonElement = when (this) {
+    null -> JsonNull
+    is Boolean -> JsonPrimitive(this)
+    is Number -> JsonPrimitive(this)
+    is String -> JsonPrimitive(this)
+    is Map<*, *> -> buildJsonObject {
+        @Suppress("UNCHECKED_CAST")
+        (this@toJsonElement as Map<String, Any?>).forEach { (k, v) -> put(k, v.toJsonElement()) }
+    }
+    is List<*> -> JsonArray(map { it.toJsonElement() })
+    else -> JsonPrimitive(toString())
 }

@@ -11,14 +11,18 @@ import { DropdownModule } from "primeng/dropdown";
 import { CardModule } from "primeng/card";
 import { TagModule } from "primeng/tag";
 import { TooltipModule } from "primeng/tooltip";
+import { DialogModule } from "primeng/dialog";
+import { CheckboxModule } from "primeng/checkbox";
 import { TrackerApiService } from "../../core/services/tracker-api.service";
+import { AuthSessionService } from "../../core/services/auth-session.service";
 import { I18nService } from "../../core/services/i18n.service";
 import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/models";
+import { PlanGateComponent } from "../../shared/components/plan-gate.component";
 
 @Component({
   standalone: true,
   selector: "app-team-page",
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, TableModule, ButtonModule, InputTextModule, InputNumberModule, DropdownModule, CardModule, TagModule, TooltipModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, TableModule, ButtonModule, InputTextModule, InputNumberModule, DropdownModule, CardModule, TagModule, TooltipModule, DialogModule, CheckboxModule, PlanGateComponent],
   template: `
     <h2 class="page-title">{{ i18n.t().teamTitle }}</h2>
     <p class="section-subtitle">{{ i18n.t().teamSubtitle }}</p>
@@ -36,6 +40,16 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
           ></p-inputNumber>
           <small class="field-hint">{{ i18n.t().employeeCountHint }}</small>
         </div>
+        <div class="field">
+          <label>{{ i18n.t().zombieThresholdLabel }}</label>
+          <p-dropdown
+            [options]="zombieThresholdOptions"
+            [(ngModel)]="zombieThresholdDays"
+            optionLabel="label"
+            optionValue="value"
+          ></p-dropdown>
+          <small class="field-hint">{{ i18n.t().zombieThresholdHint }}</small>
+        </div>
         <div class="field action-field">
           <button pButton type="button" [label]="i18n.t().btnSave" [loading]="savingSettings()" (click)="saveCompanySettings()"></button>
         </div>
@@ -44,6 +58,8 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
 
     <section class="card mb-3">
       <h3>{{ i18n.t().inviteMemberTitle }}</h3>
+      <app-plan-gate *ngIf="session.planTier() === 'FREE'" requiredPlan="PRO" />
+      <ng-container *ngIf="session.planTier() !== 'FREE'">
       <form [formGroup]="inviteForm" (ngSubmit)="invite()" class="invite-row">
         <div class="field">
           <label>{{ i18n.t().fieldEmail }}</label>
@@ -75,6 +91,7 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
         <span *ngIf="lastEmailProviderCode()"> (code {{ lastEmailProviderCode() }})</span>
         <span *ngIf="lastEmailDeliveryMessage()"> - {{ lastEmailDeliveryMessage() }}</span>
       </div>
+      </ng-container>
     </section>
 
     <section class="card mb-3">
@@ -89,6 +106,7 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
             <th>{{ i18n.t().thName }}</th>
             <th>{{ i18n.t().fieldEmail }}</th>
             <th>{{ i18n.t().fieldRole }}</th>
+            <th *ngIf="isAdmin()" class="actions-col-header">{{ i18n.t().thActions }}</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-member>
@@ -98,15 +116,51 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
             <td>
               <p-tag [value]="member.role" [severity]="roleSeverity(member.role)" />
             </td>
+            <td *ngIf="isAdmin()" class="actions-col">
+              <button
+                *ngIf="member.id !== currentUserId()"
+                pButton
+                type="button"
+                class="p-button-sm p-button-outlined p-button-danger"
+                [label]="i18n.t().offboardBtn"
+                icon="pi pi-user-minus"
+                (click)="openOffboard(member)"
+              ></button>
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="3">{{ loadingMembers() ? i18n.t().loadingMembersText : i18n.t().noActiveMembersText }}</td>
+            <td [attr.colspan]="isAdmin() ? 4 : 3">{{ loadingMembers() ? i18n.t().loadingMembersText : i18n.t().noActiveMembersText }}</td>
           </tr>
         </ng-template>
       </p-table>
     </section>
+
+    <!-- Offboard dialog -->
+    <p-dialog
+      [(visible)]="offboardDialogVisible"
+      [header]="i18n.t().offboardTitle"
+      [modal]="true"
+      [style]="{ width: '420px' }"
+      [closable]="true"
+    >
+      <div class="offboard-body" *ngIf="offboardTarget()">
+        <p><strong>{{ offboardTarget()!.name }}</strong> &lt;{{ offboardTarget()!.email }}&gt;</p>
+        <p *ngIf="offboardSubsLoading()">{{ i18n.t().loadingMembersText }}</p>
+        <p *ngIf="!offboardSubsLoading() && offboardSubs().length > 0">
+          {{ i18n.t().offboardOwnedSubs }} <strong>{{ offboardSubs().length }}</strong>
+        </p>
+        <div class="offboard-check" *ngIf="offboardSubs().length > 0">
+          <p-checkbox [(ngModel)]="archiveOnOffboard" [binary]="true" inputId="archiveSubs"></p-checkbox>
+          <label for="archiveSubs">{{ i18n.t().offboardArchiveLabel }}</label>
+        </div>
+        <div *ngIf="offboardError()" class="error-state mt-2">{{ offboardError() }}</div>
+      </div>
+      <ng-template pTemplate="footer">
+        <button pButton type="button" class="p-button-danger" [label]="i18n.t().offboardConfirm" [loading]="offboarding()" (click)="confirmOffboard()"></button>
+      </ng-template>
+    </p-dialog>
 
     <section class="card">
       <div class="section-head">
@@ -292,12 +346,14 @@ import { TeamInvitation, TeamInviteResponse, TeamMember } from "../../shared/mod
 })
 export class TeamPageComponent {
   protected readonly i18n = inject(I18nService);
+  protected readonly session = inject(AuthSessionService);
   private readonly api = inject(TrackerApiService);
   private readonly messageService = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly fb = inject(FormBuilder);
 
   employeeCount: number | null = null;
+  zombieThresholdDays: number = 60;
   readonly savingSettings = signal(false);
 
   readonly members = signal<TeamMember[]>([]);
@@ -313,6 +369,24 @@ export class TeamPageComponent {
   readonly lastEmailProviderCode = signal<number | null>(null);
   readonly membersError = signal<string | null>(null);
   readonly invitationsError = signal<string | null>(null);
+
+  // Offboarding
+  offboardDialogVisible = false;
+  archiveOnOffboard = false;
+  readonly offboardTarget = signal<TeamMember | null>(null);
+  readonly offboardSubs = signal<{ id: string; vendorName: string; amount: string; currency: string; billingCycle: string }[]>([]);
+  readonly offboardSubsLoading = signal(false);
+  readonly offboarding = signal(false);
+  readonly offboardError = signal<string | null>(null);
+
+  readonly isAdmin = computed(() => this.session.currentUserRole() === "ADMIN");
+  readonly currentUserId = computed(() => this.session.userId());
+
+  readonly zombieThresholdOptions = [
+    { label: "30 days", value: 30 },
+    { label: "60 days", value: 60 },
+    { label: "90 days", value: 90 }
+  ];
 
   readonly roles = computed(() => {
     const t = this.i18n.t();
@@ -331,6 +405,42 @@ export class TeamPageComponent {
   constructor() {
     this.reloadTeamData();
     this.loadCompanySettings();
+  }
+
+  openOffboard(member: TeamMember): void {
+    this.offboardTarget.set(member);
+    this.offboardSubs.set([]);
+    this.offboardError.set(null);
+    this.archiveOnOffboard = false;
+    this.offboardDialogVisible = true;
+    this.offboardSubsLoading.set(true);
+    this.api.getMemberSubscriptions(member.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => { this.offboardSubs.set(res.subscriptions); this.offboardSubsLoading.set(false); },
+        error: () => this.offboardSubsLoading.set(false)
+      });
+  }
+
+  confirmOffboard(): void {
+    const target = this.offboardTarget();
+    if (!target) return;
+    this.offboarding.set(true);
+    this.offboardError.set(null);
+    this.api.offboardMember(target.id, this.archiveOnOffboard)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.offboarding.set(false);
+          this.offboardDialogVisible = false;
+          this.messageService.add({ severity: "success", summary: this.i18n.t().offboardSuccess });
+          this.reloadTeamData();
+        },
+        error: () => {
+          this.offboarding.set(false);
+          this.offboardError.set(this.i18n.t().offboardError);
+        }
+      });
   }
 
   membersActiveLabel(): string {
@@ -352,11 +462,12 @@ export class TeamPageComponent {
   saveCompanySettings(): void {
     this.savingSettings.set(true);
     this.api
-      .updateCompany({ employeeCount: this.employeeCount })
+      .updateCompany({ employeeCount: this.employeeCount, zombieThresholdDays: this.zombieThresholdDays })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (result) => {
           this.employeeCount = result.employeeCount;
+          this.zombieThresholdDays = result.zombieThresholdDays ?? this.zombieThresholdDays;
           this.savingSettings.set(false);
           const t = this.i18n.t();
           this.messageService.add({ severity: "success", summary: t.msgSettingsSaved, detail: t.msgSettingsSavedDetail });
@@ -563,6 +674,7 @@ export class TeamPageComponent {
       .subscribe({
         next: (result) => {
           this.employeeCount = result.employeeCount;
+          this.zombieThresholdDays = result.zombieThresholdDays ?? 60;
         },
         error: () => {}
       });

@@ -6,10 +6,12 @@ import com.saastracker.domain.model.AuditAction
 import com.saastracker.domain.model.AuditEntityType
 import com.saastracker.domain.model.BillingCycle
 import com.saastracker.domain.model.CompanySubscriptionStatus
+import com.saastracker.domain.model.PlanTier
 import com.saastracker.domain.model.EmailDeliveryState
 import com.saastracker.domain.model.EmailTemplateType
 import com.saastracker.domain.model.PaymentMode
 import com.saastracker.domain.model.PaymentStatus
+import com.saastracker.domain.model.SavingsEventType
 import com.saastracker.domain.model.SubscriptionStatus
 import com.saastracker.domain.model.UserRole
 import org.jetbrains.exposed.dao.id.UUIDTable
@@ -23,11 +25,15 @@ object Companies : UUIDTable("companies") {
     val domain = varchar("domain", 255).uniqueIndex()
     val stripeCustomerId = varchar("stripe_customer_id", 255).nullable()
     val subscriptionStatus = enumerationByName("subscription_status", 50, CompanySubscriptionStatus::class)
-        .default(CompanySubscriptionStatus.TRIAL)
+        .default(CompanySubscriptionStatus.ACTIVE)
     val trialEndsAt = timestamp("trial_ends_at")
     val monthlyBudget = decimal("monthly_budget", 10, 2).nullable()
     val employeeCount = integer("employee_count").nullable()
     val settings = jsonb("settings", { it }, { it }).default("{}")
+    val planTier = enumerationByName("plan_tier", 20, PlanTier::class).default(PlanTier.FREE)
+    val weeklyDigestEnabled = bool("weekly_digest_enabled").default(true)
+    val timezone = varchar("timezone", 64).default("UTC")
+    val zombieThresholdDays = integer("zombie_threshold_days").default(60)
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
 }
@@ -76,6 +82,8 @@ object Subscriptions : UUIDTable("subscriptions") {
     val documentUrl = varchar("document_url", 500).nullable()
     val archivedAt = timestamp("archived_at").nullable()
     val archivedById = reference("archived_by_id", Users).nullable()
+    val lastUsedAt = timestamp("last_used_at").nullable()
+    val isZombie = bool("is_zombie").default(false)
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
 }
@@ -176,6 +184,14 @@ object RefreshTokens : UUIDTable("refresh_tokens") {
     val createdAt = timestamp("created_at")
 }
 
+object PasswordResetTokens : UUIDTable("password_reset_tokens") {
+    val userId = reference("user_id", Users, onDelete = org.jetbrains.exposed.sql.ReferenceOption.CASCADE)
+    val tokenHash = varchar("token_hash", 255).uniqueIndex()
+    val expiresAt = timestamp("expires_at")
+    val usedAt = timestamp("used_at").nullable()
+    val createdAt = timestamp("created_at")
+}
+
 object SpendSnapshots : UUIDTable("spend_snapshots") {
     val companyId = reference("company_id", Companies, onDelete = org.jetbrains.exposed.sql.ReferenceOption.CASCADE)
     val year = short("year")
@@ -188,6 +204,16 @@ object SpendSnapshots : UUIDTable("spend_snapshots") {
     init {
         uniqueIndex(companyId, year, month)
     }
+}
+
+object SavingsEvents : UUIDTable("savings_events") {
+    val companyId = reference("company_id", Companies, onDelete = org.jetbrains.exposed.sql.ReferenceOption.CASCADE)
+    val subscriptionId = reference("subscription_id", Subscriptions, onDelete = org.jetbrains.exposed.sql.ReferenceOption.SET_NULL).nullable()
+    val eventType = enumerationByName("event_type", 50, SavingsEventType::class)
+    val vendorName = varchar("vendor_name", 255)
+    val amount = decimal("amount", 12, 2)
+    val currency = char("currency", 3)
+    val savedAt = timestamp("saved_at")
 }
 
 val managedTables: Array<Table> = arrayOf(
@@ -203,5 +229,7 @@ val managedTables: Array<Table> = arrayOf(
     SubscriptionComments,
     SpendSnapshots,
     BudgetAlertLog,
-    RefreshTokens
+    RefreshTokens,
+    PasswordResetTokens,
+    SavingsEvents
 )

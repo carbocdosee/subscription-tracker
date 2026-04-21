@@ -6,17 +6,22 @@ import { TableModule } from "primeng/table";
 import { TagModule } from "primeng/tag";
 import { TooltipModule } from "primeng/tooltip";
 import { TrackerApiService } from "../../core/services/tracker-api.service";
+import { AuthSessionService } from "../../core/services/auth-session.service";
 import { I18nService } from "../../core/services/i18n.service";
 import { AnalyticsData } from "../../shared/models";
+import { PlanGateComponent } from "../../shared/components/plan-gate.component";
 
 @Component({
   standalone: true,
   selector: "app-analytics-page",
-  imports: [CommonModule, CardModule, TableModule, TagModule, TooltipModule],
+  imports: [CommonModule, CardModule, TableModule, TagModule, TooltipModule, PlanGateComponent],
   template: `
     <h2 class="page-title">{{ i18n.t().analyticsTitle }}</h2>
     <p class="section-subtitle">{{ i18n.t().analyticsSubtitle }}</p>
 
+    <app-plan-gate *ngIf="session.planTier() === 'FREE'" requiredPlan="PRO" />
+
+    <ng-container *ngIf="session.planTier() !== 'FREE'">
     <div *ngIf="loading(); else analyticsView" class="card">{{ i18n.t().loadingAnalytics }}</div>
 
     <ng-template #analyticsView>
@@ -104,13 +109,14 @@ import { AnalyticsData } from "../../shared/models";
         <section class="card">{{ i18n.t().noAnalyticsData }}</section>
       </ng-template>
     </ng-template>
+    </ng-container>
   `,
   styles: [
     `
       .cards-grid {
         margin-top: 8px;
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
         gap: 12px;
       }
       .metric-card {
@@ -159,11 +165,6 @@ import { AnalyticsData } from "../../shared/models";
         color: #334155;
         font-size: 0.83rem;
       }
-      @media (max-width: 1100px) {
-        .cards-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
       @media (max-width: 700px) {
         .cards-grid {
           grid-template-columns: 1fr;
@@ -175,12 +176,17 @@ import { AnalyticsData } from "../../shared/models";
 })
 export class AnalyticsPageComponent {
   protected readonly i18n = inject(I18nService);
+  protected readonly session = inject(AuthSessionService);
   private readonly api = inject(TrackerApiService);
   private readonly destroyRef = inject(DestroyRef);
   readonly loading = signal(true);
   readonly analytics = signal<AnalyticsData | null>(null);
 
   constructor() {
+    if (this.session.planTier() === "FREE") {
+      this.loading.set(false);
+      return;
+    }
     this.api
       .getAnalytics()
       .pipe(takeUntilDestroyed(this.destroyRef))

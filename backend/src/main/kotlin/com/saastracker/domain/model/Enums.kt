@@ -11,6 +11,51 @@ enum class CompanySubscriptionStatus {
 }
 
 @Serializable
+enum class PlanTier {
+    FREE, PRO, ENTERPRISE;
+
+    fun isAtLeast(required: PlanTier): Boolean = this.ordinal >= required.ordinal
+}
+
+@Serializable
+enum class PlanFeature {
+    ANALYTICS,
+    EMAIL_ALERTS,
+    TEAM_INVITE,
+    EXPORT,
+    VENDOR_SUGGEST,
+    SUBSCRIPTION_CREATE
+}
+
+object PlanMatrix {
+    data class PlanLimits(
+        val maxSubscriptions: Int,  // -1 = unlimited
+        val maxTeamMembers: Int     // -1 = unlimited
+    )
+
+    val limits = mapOf(
+        PlanTier.FREE       to PlanLimits(maxSubscriptions = 5,  maxTeamMembers = 1),
+        PlanTier.PRO        to PlanLimits(maxSubscriptions = 50, maxTeamMembers = 5),
+        PlanTier.ENTERPRISE to PlanLimits(maxSubscriptions = -1, maxTeamMembers = -1)
+    )
+
+    private val featureMinPlan = mapOf(
+        PlanFeature.ANALYTICS       to PlanTier.PRO,
+        PlanFeature.EMAIL_ALERTS    to PlanTier.PRO,
+        PlanFeature.TEAM_INVITE     to PlanTier.PRO,
+        PlanFeature.EXPORT          to PlanTier.PRO,
+        PlanFeature.VENDOR_SUGGEST  to PlanTier.PRO,
+        PlanFeature.SUBSCRIPTION_CREATE to PlanTier.FREE
+    )
+
+    fun canAccess(tier: PlanTier, feature: PlanFeature): Boolean =
+        tier.isAtLeast(featureMinPlan[feature] ?: PlanTier.FREE)
+
+    fun requiredPlanFor(feature: PlanFeature): PlanTier =
+        featureMinPlan[feature] ?: PlanTier.FREE
+}
+
+@Serializable
 enum class UserRole {
     ADMIN,
     EDITOR,
@@ -78,7 +123,10 @@ enum class NotificationType {
     MANUAL_PAYMENT_OVERDUE,
     INVITATION_EXPIRING,
     INVITATION_EMAIL_ISSUE,
-    BUDGET_THRESHOLD
+    BUDGET_THRESHOLD,
+    ZOMBIE_DETECTED,
+    PRICE_INCREASED,
+    WEEKLY_DIGEST
 }
 
 @Serializable
@@ -91,7 +139,13 @@ enum class NotificationSeverity {
 @Serializable
 enum class EmailTemplateType {
     TEAM_INVITE,
-    RENEWAL_DIGEST
+    RENEWAL_DIGEST,
+    WEEKLY_DIGEST
+}
+
+@Serializable
+enum class SavingsEventType {
+    ZOMBIE_ARCHIVED
 }
 
 @Serializable
