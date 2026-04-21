@@ -24,6 +24,7 @@ export async function registerAndLogin(): Promise<TestUser> {
         fullName: faker.person.fullName(),
         companyName: faker.company.name(),
         companyDomain: faker.internet.domainName(),
+        gdprConsent: true,
     });
 
     if (res.status !== 201) {

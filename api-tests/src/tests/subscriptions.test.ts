@@ -108,13 +108,17 @@ describe('Subscriptions API — CRUD', () => {
         expect(create.status).toBe(201);
         const id = create.data.id as string;
 
+        const today = new Date();
+        const paidAt = today.toISOString().slice(0, 10);
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        const expectedNext = nextMonth.toISOString().slice(0, 10);
+
         const res = await api.post(`/api/v1/subscriptions/${id}/mark-paid`,
-            { paidAt: '2026-03-01' },
+            { paidAt },
             { headers: authHeader(user.accessToken) });
         expect(res.status).toBe(200);
-        // After marking paid on 2026-03-01 (MONTHLY), nextPaymentDate = 2026-04-01.
-        // resolvePaymentStatus(MANUAL, 2026-04-01, today) = PENDING (future date).
+        // After marking paid today (MONTHLY), nextPaymentDate = today + 1 month → PENDING.
         expect(res.data.paymentStatus).toBe('PENDING');
-        expect(res.data.lastPaidAt).toBe('2026-03-01');
+        expect(res.data.lastPaidAt).toBe(paidAt);
     });
 });

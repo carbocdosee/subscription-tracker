@@ -244,14 +244,18 @@ fun Route.subscriptionRoutes(
         get("/export") {
             val user = call.requireCurrentUser(userRepository) ?: return@get
             if (!call.ensurePlanFeature(user, PlanFeature.EXPORT, companyRepository)) return@get
+            val format = call.request.queryParameters["format"] ?: "csv"
+            if (format != "csv" && format != "pdf") {
+                call.respond(HttpStatusCode.BadRequest, mapOf("message" to "Unsupported format: $format"))
+                return@get
+            }
+
             val clientIp = call.request.headers["X-Forwarded-For"]?.substringBefore(",")
                 ?: call.request.local.remoteHost
             if (!rateLimiter.isAllowed("$clientIp:export", rateLimiter.exportLimit)) {
                 call.respond(HttpStatusCode.TooManyRequests, mapOf("message" to "Export rate limit exceeded. Retry in one minute."))
                 return@get
             }
-
-            val format = call.request.queryParameters["format"] ?: "csv"
             val filter = SubscriptionFilter(
                 vendorName = call.request.queryParameters["vendor"],
                 category = call.request.queryParameters["category"],
@@ -269,13 +273,12 @@ fun Route.subscriptionRoutes(
                     call.response.headers.append(HttpHeaders.ContentDisposition, "attachment; filename=\"subscriptions.csv\"")
                     call.respondText(csv, ContentType("text", "csv"))
                 }
-                "pdf" -> {
+                else -> {
                     val companyName = companyRepository.findById(user.companyId)?.name ?: "Company"
                     val pdf = subscriptionService.exportPdf(user.companyId, companyName, filter)
                     call.response.headers.append(HttpHeaders.ContentDisposition, "attachment; filename=\"subscriptions.pdf\"")
                     call.respondBytes(pdf, ContentType("application", "pdf"))
                 }
-                else -> call.respond(HttpStatusCode.BadRequest, mapOf("message" to "Unsupported format: $format"))
             }
         }
 

@@ -2,6 +2,7 @@ package com.saastracker.transport.http.routes
 
 import com.saastracker.domain.error.AppError
 import com.saastracker.domain.error.AppResult
+import com.saastracker.domain.model.CompanySubscriptionStatus
 import com.saastracker.domain.model.PlanFeature
 import com.saastracker.domain.model.PlanMatrix
 import com.saastracker.domain.model.User
@@ -60,6 +61,7 @@ suspend fun ApplicationCall.ensurePlanFeature(
         respond(HttpStatusCode.NotFound, mapOf("message" to "Company not found"))
         return false
     }
+    if (company.subscriptionStatus == CompanySubscriptionStatus.TRIAL) return true
     if (PlanMatrix.canAccess(company.planTier, feature)) return true
     val required = PlanMatrix.requiredPlanFor(feature)
     respond(
@@ -84,6 +86,7 @@ suspend fun ApplicationCall.ensureSubscriptionQuota(
         respond(HttpStatusCode.NotFound, mapOf("message" to "Company not found"))
         return false
     }
+    if (company.subscriptionStatus == CompanySubscriptionStatus.TRIAL) return true
     val limits = PlanMatrix.limits[company.planTier] ?: return true
     if (limits.maxSubscriptions == -1) return true
     val current = subscriptionRepository.listActiveByCompany(company.id).size
@@ -109,6 +112,7 @@ suspend fun ApplicationCall.ensureTeamQuota(
         respond(HttpStatusCode.NotFound, mapOf("message" to "Company not found"))
         return false
     }
+    if (company.subscriptionStatus == CompanySubscriptionStatus.TRIAL) return true
     val limits = PlanMatrix.limits[company.planTier] ?: return true
     if (limits.maxTeamMembers == -1) return true
     val current = userRepository.listByCompany(company.id).count { it.isActive }

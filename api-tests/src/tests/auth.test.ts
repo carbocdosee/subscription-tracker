@@ -10,6 +10,7 @@ describe('POST /api/auth/register', () => {
             fullName: 'Test User',
             companyName: faker.company.name(),
             companyDomain: faker.internet.domainName(),
+            gdprConsent: true,
         });
         expect(res.status).toBe(201);
         expect(res.data).toHaveProperty('accessToken');
@@ -26,6 +27,7 @@ describe('POST /api/auth/register', () => {
             fullName: 'Cookie User',
             companyName: faker.company.name(),
             companyDomain: faker.internet.domainName(),
+            gdprConsent: true,
         });
         expect(res.status).toBe(201);
         const cookie = extractRefreshCookie(res.headers['set-cookie']);
@@ -40,6 +42,7 @@ describe('POST /api/auth/register', () => {
             fullName: 'Dup',
             companyName: faker.company.name(),
             companyDomain: faker.internet.domainName(),
+            gdprConsent: true,
         });
         expect(res.status).toBe(409);
     });

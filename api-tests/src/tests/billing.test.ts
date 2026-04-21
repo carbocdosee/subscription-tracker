@@ -33,7 +33,7 @@ describe('Billing API', () => {
 
     describe('POST /billing/checkout', () => {
         it('returns 200 with checkoutUrl when Stripe is configured', async () => {
-            const res = await api.post('/api/v1/billing/checkout?plan=monthly', {}, {
+            const res = await api.post('/api/v1/billing/checkout', { planId: 'PRO' }, {
                 headers: authHeader(user.accessToken),
             });
             // May return 200 (Stripe configured) or 502 (Stripe not configured in test env)
