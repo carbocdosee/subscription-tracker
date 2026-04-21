@@ -6,6 +6,9 @@ import com.saastracker.domain.service.AuthService
 import com.saastracker.domain.service.BudgetAlertService
 import com.saastracker.domain.service.CurrencyService
 import com.saastracker.domain.service.DashboardService
+import com.saastracker.domain.service.DigestService
+import com.saastracker.domain.service.InsightsService
+import com.saastracker.domain.service.RoiService
 import com.saastracker.domain.service.HealthService
 import com.saastracker.domain.service.NotificationService
 import com.saastracker.domain.service.PasswordService
@@ -20,9 +23,11 @@ import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.IdentityProvider
 import com.saastracker.persistence.repository.NotificationReadRepository
 import com.saastracker.persistence.repository.RenewalAlertRepository
+import com.saastracker.persistence.repository.SavingsEventRepository
 import com.saastracker.persistence.repository.SpendSnapshotRepository
 import com.saastracker.persistence.repository.SubscriptionCommentRepository
 import com.saastracker.persistence.repository.BudgetAlertRepository
+import com.saastracker.persistence.repository.PasswordResetRepository
 import com.saastracker.persistence.repository.RefreshTokenRepository
 import com.saastracker.persistence.repository.SubscriptionPaymentRepository
 import com.saastracker.persistence.repository.SubscriptionRepository
@@ -30,11 +35,13 @@ import com.saastracker.persistence.repository.TeamInvitationRepository
 import com.saastracker.persistence.repository.UserRepository
 import com.saastracker.persistence.repository.exposed.ExposedAuditLogRepository
 import com.saastracker.persistence.repository.exposed.ExposedBudgetAlertRepository
+import com.saastracker.persistence.repository.exposed.ExposedPasswordResetRepository
 import com.saastracker.persistence.repository.exposed.ExposedRefreshTokenRepository
 import com.saastracker.persistence.repository.exposed.ExposedCompanyRepository
 import com.saastracker.persistence.repository.exposed.ExposedEmailDeliveryRepository
 import com.saastracker.persistence.repository.exposed.ExposedNotificationReadRepository
 import com.saastracker.persistence.repository.exposed.ExposedRenewalAlertRepository
+import com.saastracker.persistence.repository.exposed.ExposedSavingsEventRepository
 import com.saastracker.persistence.repository.exposed.ExposedSpendSnapshotRepository
 import com.saastracker.persistence.repository.exposed.ExposedSubscriptionCommentRepository
 import com.saastracker.persistence.repository.exposed.ExposedSubscriptionPaymentRepository
@@ -124,6 +131,8 @@ fun appModule(appConfig: AppConfig): Module = module {
     single { ExposedSpendSnapshotRepository() } bind SpendSnapshotRepository::class
     single { ExposedBudgetAlertRepository() } bind BudgetAlertRepository::class
     single { ExposedRefreshTokenRepository() } bind RefreshTokenRepository::class
+    single { ExposedPasswordResetRepository() } bind PasswordResetRepository::class
+    single { ExposedSavingsEventRepository() } bind SavingsEventRepository::class
 
     single<EmailService> {
         val config = get<AppConfig>()
@@ -134,13 +143,16 @@ fun appModule(appConfig: AppConfig): Module = module {
     }
     single { StripeBillingService(get<AppConfig>().stripe, get(), get(), get()) }
     single { CurrencyService(get()) }
-    single { SubscriptionService(get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { SubscriptionService(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     single { DashboardService(get(), get(), get(), get()) }
     single { SpendSnapshotService(get(), get(), get(), get(), get(), get()) }
     single { AnalyticsService(get(), get(), get(), get(), get(), get(), get()) }
-    single { AuthService(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { AuthService(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     single { AlertService(get(), get(), get(), get(), get(), get(), get(), get()) }
-    single { NotificationService(get(), get(), get(), get(), get(), get()) }
+    single { NotificationService(get(), get(), get(), get(), get(), get(), get()) }
     single { HealthService(get(), get(), get()) }
     single { BudgetAlertService(get(), get(), get(), get(), get(), get(), get()) }
+    single { DigestService(get(), get(), get(), get(), get(), get(), get()) }
+    single { InsightsService(get(), get(), get(), get()) }
+    single { RoiService(get(), get()) }
 }

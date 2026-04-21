@@ -13,7 +13,9 @@ export interface Translations {
   navAnalytics: string;
   navTeam: string;
   navSettings: string;
+  navAccount: string;
   // Auth
+  authHeroTitle: string;
   authSubtitle: string;
   tabLogin: string;
   tabRegister: string;
@@ -32,6 +34,29 @@ export interface Translations {
   fieldFullName: string;
   btnJoinWorkspace: string;
   backToLogin: string;
+  forgotPassword: string;
+  gdprConsentPrefix: string;
+  privacyPolicy: string;
+  gdprConsentAnd: string;
+  termsOfService: string;
+  gdprConsentSuffix: string;
+  gdprConsentError: string;
+  // Forgot password
+  forgotPasswordTitle: string;
+  forgotPasswordSubtitle: string;
+  forgotPasswordSent: string;
+  backToSignIn: string;
+  fieldEmailAddress: string;
+  forgotPasswordSendLink: string;
+  // Reset password
+  resetPasswordTitle: string;
+  resetPasswordSubtitle: string;
+  resetPasswordDone: string;
+  goToSignIn: string;
+  fieldNewPassword: string;
+  resetPasswordMinLength: string;
+  resetPasswordBtn: string;
+  resetPasswordTokenError: string;
   // Dashboard
   dashboardTitle: string;
   dashboardSubtitle: string;
@@ -47,7 +72,12 @@ export interface Translations {
   kpiPotentialSavings: string;
   kpiPotentialSavingsTooltip: string;
   kpiDuplicateWarnings: string;
+  kpiSavedWithProduct: string;
+  kpiSavedWithProductHint: string;
   noDashboardData: string;
+  dashboardZeroTitle: string;
+  dashboardZeroBody: string;
+  dashboardZeroBtn: string;
   renewingIn30Title: string;
   thVendor: string;
   thAmountUsd: string;
@@ -140,6 +170,14 @@ export interface Translations {
   msgExportFailed: string;
   /** Use {0} as placeholder for the format name */
   msgExportFailedDetail: string;
+  // Edit subscription dialog
+  editSubscriptionTitle: string;
+  btnUpdateSubscription: string;
+  fieldStatus: string;
+  msgSubscriptionUpdated: string;
+  msgSubscriptionUpdatedDetail: string;
+  msgUpdateFailed: string;
+  msgUpdateFailedDetail: string;
   // Payment labels/hints
   payLabelAuto: string;
   payLabelOverdue: string;
@@ -189,6 +227,13 @@ export interface Translations {
   membersTitle: string;
   activeLabel: string;
   thName: string;
+  offboardBtn: string;
+  offboardTitle: string;
+  offboardConfirm: string;
+  offboardArchiveLabel: string;
+  offboardSuccess: string;
+  offboardError: string;
+  offboardOwnedSubs: string;
   loadingMembersText: string;
   noActiveMembersText: string;
   activeInvitationsTitle: string;
@@ -227,16 +272,31 @@ export interface Translations {
   enterValidEmail: string;
   // Account
   accountTitle: string;
+  accountEmailLabel: string;
+  accountRoleLabel: string;
   billingTitle: string;
   manageBillingSubtitle: string;
   redirecting: string;
   manageBilling: string;
   noActiveSubscriptionMsg: string;
   upgradeLink: string;
+  freePlanBillingMsg: string;
   loadingBillingStatus: string;
   billingAdminOnly: string;
   couldNotLoadBilling: string;
   failedToOpenPortal: string;
+  personalDataTitle: string;
+  personalDataSubtitle: string;
+  exportMyData: string;
+  exportingData: string;
+  deleteAccountTitle: string;
+  deleteAccountSubtitle: string;
+  deleteAccountBtn: string;
+  deleteAccountConfirmMsg: string;
+  deleteAccountConfirmYes: string;
+  deletingAccount: string;
+  deleteAccountError: string;
+  exportDataError: string;
   // Onboarding
   onboardingTitle: string;
   stepFirstSubscription: string;
@@ -258,4 +318,91 @@ export interface Translations {
   roleEditor: string;
   roleAdmin: string;
   ob1FailedMsg: string;
+  // Onboarding Step 0 inline form
+  ob0AddBtn: string;
+  ob0FormHint: string;
+  // Subscriptions extended fields
+  addSubscriptionBtn: string;
+  fieldTags: string;
+  fieldDescription: string;
+  fieldNotes: string;
+  fieldOwner: string;
+  fieldDocumentUrl: string;
+  duplicateSimilarFound: string;
+  duplicateSimilarDetail: string;
+  // Freemium plan-gate
+  planGateTitle: string;
+  /** Use {0} for plan name */
+  planGateSubtitle: string;
+  planGateUpgradeBtn: string;
+  plansPageTitle: string;
+  plansPageSubtitle: string;
+  planFree: string;
+  planPro: string;
+  planEnterprise: string;
+  planCurrentLabel: string;
+  planGetBtn: string;
+  planContactSales: string;
+  planLimitSubscriptions: string;
+  planLimitTeam: string;
+  planUnlimited: string;
+  /** Use {0} for limit count */
+  planUpTo: string;
+  planFeatureAnalytics: string;
+  planFeatureEmailAlerts: string;
+  planFeatureTeam: string;
+  planFeatureExport: string;
+  planFeatureVendorSuggest: string;
+  planFeatureBasicTracking: string;
+  planFeatureManualPayments: string;
+  planFeatureBasicAlerts: string;
+  planFeaturePrioritySupport: string;
+  planFeatureCustomIntegrations: string;
+  planBadgePopular: string;
+  planGdprNotice: string;
+  planGdprManageAccount: string;
+  planGdprAvailableAnyPlan: string;
+  planCouldNotLoad: string;
+  planMonthly: string;
+  planFree0: string;
+  planQuotaReachedTitle: string;
+  planQuotaReachedBody: string;
+  /** Use {0} for current count, {1} for max */
+  planUsageHint: string;
+  // Template picker
+  addFromLibraryBtn: string;
+  templatePickerTitle: string;
+  templatePickerSearchPlaceholder: string;
+  templatePickerAllCategories: string;
+  templatePickerAddNTools: string;
+  templatePickerAddCustom: string;
+  templatePickerNoResults: string;
+  templatePickerLoading: string;
+  templatePickerAdded: string;
+  templatePickerSkipped: string;
+  templatePickerPerMonth: string;
+  zombieThresholdLabel: string;
+  zombieThresholdHint: string;
+  digestSectionTitle: string;
+  digestEnabledLabel: string;
+  digestEnabledHint: string;
+  digestSaveBtn: string;
+  digestSaved: string;
+  digestSaveError: string;
+  // Insights bar
+  insightsAllGood: string;
+  insightsZombieLabel: string;
+  insightsRenewalLabel: string;
+  insightsPriceLabel: string;
+  insightsSeeAll: string;
+  insightsCollapse: string;
+  insightsDaysSince: string;
+  insightsDaysLeft: string;
+  // Zombie detector
+  zombieBadge: string;
+  zombieOnlyFilter: string;
+  lastUsedLabel: string;
+  markAsUsedBtn: string;
+  msgMarkedAsUsed: string;
+  msgMarkUsedFailed: string;
 }

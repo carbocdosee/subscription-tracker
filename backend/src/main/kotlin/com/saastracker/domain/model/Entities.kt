@@ -16,7 +16,11 @@ data class Company(
     val employeeCount: Int?,
     val settings: String,
     val createdAt: Instant,
-    val updatedAt: Instant
+    val updatedAt: Instant,
+    val planTier: PlanTier = PlanTier.FREE,
+    val weeklyDigestEnabled: Boolean = true,
+    val timezone: String = "UTC",
+    val zombieThresholdDays: Int = 60
 )
 
 data class User(
@@ -58,7 +62,9 @@ data class Subscription(
     val createdAt: Instant,
     val updatedAt: Instant,
     val archivedAt: Instant? = null,
-    val archivedById: UUID? = null
+    val archivedById: UUID? = null,
+    val lastUsedAt: Instant? = null,
+    val isZombie: Boolean = false
 )
 
 data class RenewalAlert(
@@ -149,4 +155,15 @@ data class SpendSnapshot(
     val subscriptionCount: Int,
     val createdAt: Instant,
     val updatedAt: Instant
+)
+
+data class SavingsEvent(
+    val id: UUID,
+    val companyId: UUID,
+    val subscriptionId: UUID?,
+    val eventType: SavingsEventType,
+    val vendorName: String,
+    val amount: BigDecimal,
+    val currency: String,
+    val savedAt: Instant
 )

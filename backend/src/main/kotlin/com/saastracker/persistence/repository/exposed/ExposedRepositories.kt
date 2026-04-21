@@ -6,6 +6,8 @@ import com.saastracker.domain.dto.SubscriptionFilter
 import com.saastracker.domain.model.AuditLogEntry
 import com.saastracker.domain.model.Company
 import com.saastracker.domain.model.EmailDeliveryLog
+import com.saastracker.domain.model.SavingsEvent
+import com.saastracker.domain.model.SavingsEventType
 import com.saastracker.domain.model.RenewalAlert
 import com.saastracker.domain.model.SpendSnapshot
 import com.saastracker.domain.model.Subscription
@@ -18,9 +20,12 @@ import com.saastracker.persistence.repository.BudgetAlertRepository
 import com.saastracker.persistence.repository.CompanyRepository
 import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.NotificationReadRepository
+import com.saastracker.persistence.repository.PasswordResetRepository
+import com.saastracker.persistence.repository.PasswordResetTokenRecord
 import com.saastracker.persistence.repository.RefreshTokenRecord
 import com.saastracker.persistence.repository.RefreshTokenRepository
 import com.saastracker.persistence.repository.RenewalAlertRepository
+import com.saastracker.persistence.repository.SavingsEventRepository
 import com.saastracker.persistence.repository.SpendSnapshotRepository
 import com.saastracker.persistence.repository.SubscriptionCommentRepository
 import com.saastracker.persistence.repository.SubscriptionPaymentRepository
@@ -33,11 +38,13 @@ import com.saastracker.persistence.table.Companies
 import com.saastracker.persistence.table.EmailDeliveries
 import com.saastracker.persistence.table.RefreshTokens
 import com.saastracker.persistence.table.RenewalAlerts
+import com.saastracker.persistence.table.SavingsEvents
 import com.saastracker.persistence.table.SpendSnapshots
 import com.saastracker.persistence.table.SubscriptionComments
 import com.saastracker.persistence.table.SubscriptionPayments
 import com.saastracker.persistence.table.Subscriptions
 import com.saastracker.persistence.table.TeamInvitations
+import com.saastracker.persistence.table.PasswordResetTokens
 import com.saastracker.persistence.table.UserNotificationReads
 import com.saastracker.persistence.table.Users
 import org.jetbrains.exposed.dao.id.EntityID
@@ -58,8 +65,12 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.upsert
+import com.saastracker.domain.model.EmailDeliveryState
+import com.saastracker.domain.model.EmailTemplateType
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.util.UUID
 
 private fun <T : IdTable<UUID>> entity(uuid: UUID, table: T): EntityID<UUID> = EntityID(uuid, table)
@@ -76,6 +87,10 @@ class ExposedCompanyRepository : CompanyRepository {
             it[monthlyBudget] = company.monthlyBudget
             it[employeeCount] = company.employeeCount
             it[settings] = company.settings
+            it[planTier] = company.planTier
+            it[weeklyDigestEnabled] = company.weeklyDigestEnabled
+            it[timezone] = company.timezone
+            it[zombieThresholdDays] = company.zombieThresholdDays
             it[createdAt] = company.createdAt
             it[updatedAt] = company.updatedAt
         }
@@ -92,6 +107,10 @@ class ExposedCompanyRepository : CompanyRepository {
             it[monthlyBudget] = company.monthlyBudget
             it[employeeCount] = company.employeeCount
             it[settings] = company.settings
+            it[planTier] = company.planTier
+            it[weeklyDigestEnabled] = company.weeklyDigestEnabled
+            it[timezone] = company.timezone
+            it[zombieThresholdDays] = company.zombieThresholdDays
             it[updatedAt] = company.updatedAt
         }
         company
@@ -107,6 +126,16 @@ class ExposedCompanyRepository : CompanyRepository {
 
     override fun findByStripeCustomerId(stripeCustomerId: String): Company? = transaction {
         Companies.selectAll().where { Companies.stripeCustomerId eq stripeCustomerId }.singleOrNull()?.toCompany()
+    }
+
+    override fun delete(id: UUID): Unit = transaction {
+        Companies.deleteWhere { Companies.id eq id }
+    }
+
+    override fun findAllWithDigestEnabled(): List<Company> = transaction {
+        Companies.selectAll()
+            .where { Companies.weeklyDigestEnabled eq true }
+            .map { it.toCompany() }
     }
 
     override fun listAll(): List<Company> = transaction {
@@ -154,6 +183,10 @@ class ExposedUserRepository : UserRepository {
     override fun listByCompany(companyId: UUID): List<User> = transaction {
         Users.selectAll().where { Users.companyId eq companyId }.map { it.toUser() }
     }
+
+    override fun deactivate(id: UUID): Unit = transaction {
+        Users.update({ Users.id eq id }) { it[isActive] = false }
+    }
 }
 
 class ExposedSubscriptionRepository : SubscriptionRepository {
@@ -182,6 +215,8 @@ class ExposedSubscriptionRepository : SubscriptionRepository {
             it[ownerId] = subscription.ownerId?.let { owner -> entity(owner, Users) }
             it[notes] = subscription.notes
             it[documentUrl] = subscription.documentUrl
+            it[lastUsedAt] = subscription.lastUsedAt
+            it[isZombie] = subscription.isZombie
             it[createdAt] = subscription.createdAt
             it[updatedAt] = subscription.updatedAt
         }
@@ -213,6 +248,8 @@ class ExposedSubscriptionRepository : SubscriptionRepository {
             it[updatedAt] = subscription.updatedAt
             it[archivedAt] = subscription.archivedAt
             it[archivedById] = subscription.archivedById?.let { id -> entity(id, Users) }
+            it[lastUsedAt] = subscription.lastUsedAt
+            it[isZombie] = subscription.isZombie
         }
         subscription
     }
@@ -290,6 +327,10 @@ class ExposedSubscriptionRepository : SubscriptionRepository {
         if (filterMaxAmount != null) {
             query.andWhere { Subscriptions.amount lessEq filterMaxAmount }
         }
+        val filterZombie = filter.zombie
+        if (filterZombie != null) {
+            query.andWhere { Subscriptions.isZombie eq filterZombie }
+        }
 
         val total = query.count()
         val offset = ((pageRequest.page - 1) * pageRequest.size).toLong()
@@ -307,6 +348,38 @@ class ExposedSubscriptionRepository : SubscriptionRepository {
             .map { it.toSubscription() }
 
         Page(items = items, total = total, page = pageRequest.page, size = pageRequest.size)
+    }
+
+    override fun markUsed(id: UUID, companyId: UUID, now: Instant): Subscription? = transaction {
+        val updated = Subscriptions.update({
+            (Subscriptions.id eq entity(id, Subscriptions)) and (Subscriptions.companyId eq companyId)
+        }) {
+            it[lastUsedAt] = now
+            it[isZombie] = false
+            it[updatedAt] = now
+        }
+        if (updated == 0) return@transaction null
+        Subscriptions.selectAll()
+            .where { Subscriptions.id eq entity(id, Subscriptions) }
+            .firstOrNull()
+            ?.toSubscription()
+    }
+
+    override fun markZombie(id: UUID, isZombie: Boolean, now: Instant): Unit = transaction {
+        Subscriptions.update({ Subscriptions.id eq entity(id, Subscriptions) }) {
+            it[Subscriptions.isZombie] = isZombie
+            it[updatedAt] = now
+        }
+    }
+
+    override fun listActiveByOwner(companyId: UUID, ownerId: UUID): List<Subscription> = transaction {
+        Subscriptions.selectAll()
+            .where {
+                (Subscriptions.companyId eq companyId) and
+                (Subscriptions.ownerId eq entity(ownerId, Users)) and
+                Subscriptions.archivedAt.isNull()
+            }
+            .map { it.toSubscription() }
     }
 }
 
@@ -380,6 +453,10 @@ class ExposedAuditLogRepository : AuditLogRepository {
             .orderBy(AuditLog.createdAt, org.jetbrains.exposed.sql.SortOrder.DESC)
             .map { it.toAuditLogEntry() }
     }
+
+    override fun deleteOlderThan(cutoff: Instant): Unit = transaction {
+        AuditLog.deleteWhere { createdAt less cutoff }
+    }
 }
 
 class ExposedTeamInvitationRepository : TeamInvitationRepository {
@@ -436,6 +513,12 @@ class ExposedTeamInvitationRepository : TeamInvitationRepository {
             .orderBy(TeamInvitations.createdAt, org.jetbrains.exposed.sql.SortOrder.DESC)
             .map { it.toInvitation() }
     }
+
+    override fun countCreatedSince(companyId: UUID, since: Instant): Long = transaction {
+        TeamInvitations.selectAll()
+            .where { (TeamInvitations.companyId eq companyId) and (TeamInvitations.createdAt greaterEq since) }
+            .count()
+    }
 }
 
 class ExposedEmailDeliveryRepository : EmailDeliveryRepository {
@@ -470,6 +553,32 @@ class ExposedEmailDeliveryRepository : EmailDeliveryRepository {
             .orderBy(EmailDeliveries.createdAt, org.jetbrains.exposed.sql.SortOrder.DESC)
             .limit(limit)
             .map { it.toEmailDeliveryLog() }
+    }
+
+    override fun listByRecipientEmail(email: String): List<EmailDeliveryLog> = transaction {
+        EmailDeliveries.selectAll()
+            .where { EmailDeliveries.recipientEmail eq email.lowercase() }
+            .orderBy(EmailDeliveries.createdAt, org.jetbrains.exposed.sql.SortOrder.DESC)
+            .map { it.toEmailDeliveryLog() }
+    }
+
+    override fun deleteOlderThan(cutoff: Instant): Unit = transaction {
+        EmailDeliveries.deleteWhere { createdAt less cutoff }
+    }
+
+    override fun existsSentThisWeek(companyId: UUID, templateType: EmailTemplateType): Boolean = transaction {
+        val weekStart = LocalDate.now(ZoneOffset.UTC)
+            .with(DayOfWeek.MONDAY)
+            .atStartOfDay()
+            .toInstant(ZoneOffset.UTC)
+        EmailDeliveries.selectAll()
+            .where {
+                (EmailDeliveries.companyId eq companyId) and
+                (EmailDeliveries.templateType eq templateType) and
+                (EmailDeliveries.createdAt greaterEq weekStart) and
+                (EmailDeliveries.status eq EmailDeliveryState.SENT)
+            }
+            .count() > 0
     }
 }
 
@@ -556,6 +665,14 @@ class ExposedSubscriptionPaymentRepository : SubscriptionPaymentRepository {
                     (SubscriptionPayments.subscriptionId eq subscriptionId)
             }
             .orderBy(SubscriptionPayments.paidAt, org.jetbrains.exposed.sql.SortOrder.DESC)
+            .map { it.toSubscriptionPayment() }
+    }
+
+    override fun listRecentByCompany(companyId: UUID, limit: Int): List<SubscriptionPayment> = transaction {
+        SubscriptionPayments.selectAll()
+            .where { SubscriptionPayments.companyId eq companyId }
+            .orderBy(SubscriptionPayments.paidAt, SortOrder.DESC)
+            .limit(limit)
             .map { it.toSubscriptionPayment() }
     }
 }
@@ -672,5 +789,91 @@ class ExposedRefreshTokenRepository : RefreshTokenRepository {
 
     override fun deleteExpired(): Unit = transaction {
         RefreshTokens.deleteWhere { expiresAt less Instant.now() }
+    }
+}
+
+class ExposedPasswordResetRepository : PasswordResetRepository {
+    override fun create(userId: UUID, tokenHash: String, expiresAt: Instant): UUID = transaction {
+        val newId = UUID.randomUUID()
+        PasswordResetTokens.insert {
+            it[id] = entity(newId, PasswordResetTokens)
+            it[PasswordResetTokens.userId] = entity(userId, Users)
+            it[PasswordResetTokens.tokenHash] = tokenHash
+            it[PasswordResetTokens.expiresAt] = expiresAt
+            it[usedAt] = null
+            it[createdAt] = Instant.now()
+        }
+        newId
+    }
+
+    override fun findByHash(tokenHash: String): PasswordResetTokenRecord? = transaction {
+        PasswordResetTokens.selectAll()
+            .where { PasswordResetTokens.tokenHash eq tokenHash }
+            .singleOrNull()
+            ?.let {
+                PasswordResetTokenRecord(
+                    id = it[PasswordResetTokens.id].value,
+                    userId = it[PasswordResetTokens.userId].value,
+                    tokenHash = it[PasswordResetTokens.tokenHash],
+                    expiresAt = it[PasswordResetTokens.expiresAt],
+                    usedAt = it[PasswordResetTokens.usedAt]
+                )
+            }
+    }
+
+    override fun markUsed(id: UUID): Unit = transaction {
+        PasswordResetTokens.update({ PasswordResetTokens.id eq id }) {
+            it[usedAt] = Instant.now()
+        }
+    }
+
+    override fun deleteExpiredForUser(userId: UUID): Unit = transaction {
+        PasswordResetTokens.deleteWhere {
+            (PasswordResetTokens.userId eq userId) and (expiresAt less Instant.now())
+        }
+    }
+
+    override fun deleteAllExpired(): Unit = transaction {
+        PasswordResetTokens.deleteWhere { expiresAt less Instant.now() }
+    }
+}
+
+class ExposedSavingsEventRepository : SavingsEventRepository {
+    override fun record(event: SavingsEvent): Unit = transaction {
+        SavingsEvents.insert {
+            it[id] = entity(event.id, SavingsEvents)
+            it[companyId] = entity(event.companyId, Companies)
+            it[subscriptionId] = event.subscriptionId?.let { sid -> entity(sid, Subscriptions) }
+            it[eventType] = event.eventType
+            it[vendorName] = event.vendorName
+            it[amount] = event.amount
+            it[currency] = event.currency
+            it[savedAt] = event.savedAt
+        }
+    }
+
+    override fun listByCompany(companyId: UUID): List<SavingsEvent> = transaction {
+        SavingsEvents.selectAll()
+            .where { SavingsEvents.companyId eq companyId }
+            .orderBy(SavingsEvents.savedAt, SortOrder.DESC)
+            .map {
+                SavingsEvent(
+                    id = it[SavingsEvents.id].value,
+                    companyId = it[SavingsEvents.companyId].value,
+                    subscriptionId = it[SavingsEvents.subscriptionId]?.value,
+                    eventType = it[SavingsEvents.eventType],
+                    vendorName = it[SavingsEvents.vendorName],
+                    amount = it[SavingsEvents.amount],
+                    currency = it[SavingsEvents.currency],
+                    savedAt = it[SavingsEvents.savedAt]
+                )
+            }
+    }
+
+    override fun sumByCompany(companyId: UUID): Map<SavingsEventType, java.math.BigDecimal> = transaction {
+        SavingsEvents.selectAll()
+            .where { SavingsEvents.companyId eq companyId }
+            .groupBy { it[SavingsEvents.eventType] }
+            .mapValues { (_, rows) -> rows.fold(java.math.BigDecimal.ZERO) { acc, row -> acc + row[SavingsEvents.amount] } }
     }
 }

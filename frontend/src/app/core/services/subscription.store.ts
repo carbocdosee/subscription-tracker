@@ -15,6 +15,7 @@ type SubscriptionState = {
   vendorFilter: string;
   categoryFilter: string;
   statusFilter: string;
+  zombieFilter: boolean | null;
 };
 
 const initialState: SubscriptionState = {
@@ -27,20 +28,22 @@ const initialState: SubscriptionState = {
   totalPages: 0,
   vendorFilter: "",
   categoryFilter: "",
-  statusFilter: ""
+  statusFilter: "",
+  zombieFilter: null
 };
 
 export const SubscriptionStore = signalStore(
   { providedIn: "root" },
   withState(initialState),
   withMethods((store, api = inject(TrackerApiService)) => ({
-    async load(params?: { page?: number; size?: number; vendor?: string; category?: string; status?: string }) {
+    async load(params?: { page?: number; size?: number; vendor?: string; category?: string; status?: string; zombie?: boolean | null }) {
       const update: Partial<SubscriptionState> = { loading: true, error: null };
       if (params?.page != null) update.page = params.page;
       if (params?.size != null) update.size = params.size;
       if (params?.vendor != null) update.vendorFilter = params.vendor;
       if (params?.category != null) update.categoryFilter = params.category;
       if (params?.status != null) update.statusFilter = params.status;
+      if ("zombie" in (params ?? {})) update.zombieFilter = params!.zombie ?? null;
       patchState(store, update);
 
       try {
@@ -50,7 +53,8 @@ export const SubscriptionStore = signalStore(
             size: store.size(),
             vendor: store.vendorFilter() || undefined,
             category: store.categoryFilter() || undefined,
-            status: store.statusFilter() || undefined
+            status: store.statusFilter() || undefined,
+            zombie: store.zombieFilter() ?? undefined
           })
         );
         patchState(store, {
@@ -81,6 +85,22 @@ export const SubscriptionStore = signalStore(
       } catch {
         patchState(store, { error: "Unable to mark payment as paid" });
       }
+    },
+    async update(id: string, payload: Record<string, unknown>): Promise<SubscriptionItem> {
+      const updated = await firstValueFrom(api.updateSubscription(id, payload));
+      patchState(store, {
+        items: store.items().map((item) => (item.id === id ? updated : item)),
+        error: null
+      });
+      return updated;
+    },
+    async markUsed(id: string): Promise<SubscriptionItem> {
+      const updated = await firstValueFrom(api.markSubscriptionUsed(id));
+      patchState(store, {
+        items: store.items().map((item) => (item.id === id ? updated : item)),
+        error: null
+      });
+      return updated;
     }
   }))
 );

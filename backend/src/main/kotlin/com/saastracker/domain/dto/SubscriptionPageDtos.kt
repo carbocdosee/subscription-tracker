@@ -10,7 +10,8 @@ data class SubscriptionFilter(
     val status: SubscriptionStatus? = null,
     val paymentMode: PaymentMode? = null,
     val minAmount: BigDecimal? = null,
-    val maxAmount: BigDecimal? = null
+    val maxAmount: BigDecimal? = null,
+    val zombie: Boolean? = null
 )
 
 data class PageRequest(

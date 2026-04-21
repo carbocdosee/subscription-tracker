@@ -28,7 +28,19 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
       const message: string = error.error?.message ?? "Unexpected error. Please retry.";
 
       if (error.status === 402 && message.includes("Trial expired")) {
-        void router.navigate(["/billing/upgrade"]);
+        // Always allow account/GDPR pages — users must be able to export or delete
+        // their data regardless of billing status (GDPR Art. 17 / Art. 20).
+        const currentPath = router.url.split("?")[0];
+        const isGdprPage = currentPath === "/account";
+        if (!isGdprPage) {
+          void router.navigate(["/billing/upgrade"]);
+        }
+        return throwError(() => error);
+      }
+
+      // Plan-gate and quota errors (403) are handled inline by components — suppress the generic toast.
+      const reason: string | undefined = error.error?.reason;
+      if (error.status === 403 && (reason?.startsWith("PLAN_FEATURE_") || reason === "QUOTA_EXCEEDED" || reason === "PLAN_GATE")) {
         return throwError(() => error);
       }
 

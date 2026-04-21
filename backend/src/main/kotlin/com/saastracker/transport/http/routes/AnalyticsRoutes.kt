@@ -1,5 +1,6 @@
 package com.saastracker.transport.http.routes
 
+import com.saastracker.domain.model.PlanFeature
 import com.saastracker.domain.model.UserRole
 import com.saastracker.domain.service.AnalyticsService
 import com.saastracker.domain.service.SpendSnapshotService
@@ -24,7 +25,7 @@ fun Route.analyticsRoutes(
     authenticatedRoute("/api/v1/analytics") {
         get {
             val user = call.requireCurrentUser(userRepository) ?: return@get
-            if (!call.ensureBillingAccess(user, companyRepository, stripeBillingService)) return@get
+            if (!call.ensurePlanFeature(user, PlanFeature.ANALYTICS, companyRepository)) return@get
             val analytics = analyticsService.getAnalytics(user.companyId)
             call.respond(analytics)
         }

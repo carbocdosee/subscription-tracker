@@ -144,6 +144,9 @@ class SubscriptionIntegrationTest {
                 currentSpend: BigDecimal,
                 budget: BigDecimal
             ) { /* stub */ }
+
+            override fun sendPasswordResetEmail(email: String, token: String): EmailDeliveryResult =
+                EmailDeliveryResult(status = EmailDeliveryStatus.SENT, message = "stub")
         }
         val alertService = AlertService(
             companyRepository = companyRepository,

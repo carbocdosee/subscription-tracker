@@ -4,6 +4,7 @@ import com.saastracker.domain.model.AuditLogEntry
 import com.saastracker.domain.model.Company
 import com.saastracker.domain.model.EmailDeliveryLog
 import com.saastracker.domain.model.RenewalAlert
+import com.saastracker.domain.model.SavingsEvent
 import com.saastracker.domain.model.SpendSnapshot
 import com.saastracker.domain.model.Subscription
 import com.saastracker.domain.model.SubscriptionComment
@@ -14,6 +15,7 @@ import com.saastracker.persistence.table.AuditLog
 import com.saastracker.persistence.table.Companies
 import com.saastracker.persistence.table.EmailDeliveries
 import com.saastracker.persistence.table.RenewalAlerts
+import com.saastracker.persistence.table.SavingsEvents
 import com.saastracker.persistence.table.SpendSnapshots
 import com.saastracker.persistence.table.SubscriptionComments
 import com.saastracker.persistence.table.SubscriptionPayments
@@ -34,6 +36,10 @@ internal fun ResultRow.toCompany(): Company = Company(
     monthlyBudget = this[Companies.monthlyBudget],
     employeeCount = this[Companies.employeeCount],
     settings = this[Companies.settings],
+    planTier = this[Companies.planTier],
+    weeklyDigestEnabled = this[Companies.weeklyDigestEnabled],
+    timezone = this[Companies.timezone],
+    zombieThresholdDays = this[Companies.zombieThresholdDays],
     createdAt = this[Companies.createdAt],
     updatedAt = this[Companies.updatedAt]
 )
@@ -77,7 +83,9 @@ internal fun ResultRow.toSubscription(): Subscription = Subscription(
     createdAt = this[Subscriptions.createdAt],
     updatedAt = this[Subscriptions.updatedAt],
     archivedAt = this[Subscriptions.archivedAt],
-    archivedById = this[Subscriptions.archivedById]?.value
+    archivedById = this[Subscriptions.archivedById]?.value,
+    lastUsedAt = this[Subscriptions.lastUsedAt],
+    isZombie = this[Subscriptions.isZombie]
 )
 
 internal fun serializeTags(tags: List<String>?): String? = tags?.let { Json.encodeToString(it) }
@@ -166,4 +174,15 @@ internal fun ResultRow.toSpendSnapshot(): SpendSnapshot = SpendSnapshot(
     subscriptionCount = this[SpendSnapshots.subscriptionCount],
     createdAt = this[SpendSnapshots.createdAt],
     updatedAt = this[SpendSnapshots.updatedAt]
+)
+
+internal fun ResultRow.toSavingsEvent(): SavingsEvent = SavingsEvent(
+    id = this[SavingsEvents.id].value,
+    companyId = this[SavingsEvents.companyId].value,
+    subscriptionId = this[SavingsEvents.subscriptionId]?.value,
+    eventType = this[SavingsEvents.eventType],
+    vendorName = this[SavingsEvents.vendorName],
+    amount = this[SavingsEvents.amount],
+    currency = this[SavingsEvents.currency],
+    savedAt = this[SavingsEvents.savedAt]
 )

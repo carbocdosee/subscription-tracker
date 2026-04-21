@@ -25,6 +25,7 @@ fun validateRegister(request: RegisterRequest) {
         validate(RegisterRequest::password).isNotBlank().hasSize(min = 10, max = 128)
     }
     validatePasswordComplexity(request.password)
+    require(request.gdprConsent) { "You must accept the Privacy Policy to create an account" }
 }
 
 fun validateLogin(request: LoginRequest) {

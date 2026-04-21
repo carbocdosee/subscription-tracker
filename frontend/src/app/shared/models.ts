@@ -15,6 +15,36 @@ export interface SubscriptionItem {
   status: "ACTIVE" | "PAUSED" | "CANCELED" | "EXPIRED";
   healthScore: "GOOD" | "WARNING" | "CRITICAL";
   duplicateWarnings: string[];
+  lastUsedAt?: string | null;
+  isZombie?: boolean;
+  tags?: string[];
+  description?: string | null;
+  notes?: string | null;
+  ownerId?: string | null;
+  documentUrl?: string | null;
+}
+
+export interface VendorSuggestion {
+  vendorName: string;
+  subscriptionId: string;
+  category: string;
+  similarity: number;
+}
+
+export interface VendorSuggestResponse {
+  items: VendorSuggestion[];
+}
+
+export type PlanTier = "FREE" | "PRO" | "ENTERPRISE";
+
+export interface BillingPlan {
+  id: PlanTier;
+  name: string;
+  priceMonthly: number;
+  currency: string;
+  priceId: string | null;
+  limits: { subscriptions: number; teamMembers: number };
+  isCurrent: boolean;
 }
 
 export interface PagedSubscriptionListResponse {
@@ -164,10 +194,81 @@ export interface OnboardingSettings {
 export interface CompanySettings {
   monthlyBudget: string | null;
   employeeCount: number | null;
+  zombieThresholdDays?: number;
   onboarding?: OnboardingSettings | null;
 }
 
 export interface CategoriesResponse {
   predefined: string[];
   custom: string[];
+}
+
+export interface SaasTemplate {
+  id: string;
+  name: string;
+  category: string;
+  defaultBillingCycle: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  defaultAmountUsd: number;
+  logoUrl: string;
+  websiteUrl: string;
+}
+
+export interface SaasTemplatesResponse {
+  templates: SaasTemplate[];
+}
+
+export interface BatchSubscriptionItem {
+  templateId?: string;
+  vendorName: string;
+  category: string;
+  amount: string;
+  currency: string;
+  billingCycle: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  renewalDate: string;
+  vendorUrl?: string;
+  logoUrl?: string;
+}
+
+export interface BatchCreateResponse {
+  created: number;
+  skipped: number;
+  reason: string | null;
+  requiredPlan: string | null;
+  subscriptions: SubscriptionItem[];
+}
+
+export interface ZombieAlertInsight {
+  id: string;
+  vendor: string;
+  daysSinceUsed: number;
+  monthlyCost: string;
+  currency: string;
+}
+
+export interface RenewalInsight {
+  id: string;
+  vendor: string;
+  daysLeft: number;
+  amountUsd: string;
+}
+
+export interface PriceIncreaseInsight {
+  id: string;
+  vendor: string;
+  oldAmount: string;
+  newAmount: string;
+  changePercent: string;
+}
+
+export interface WeeklyInsights {
+  totalActions: number;
+  zombieAlerts: ZombieAlertInsight[];
+  renewalsThisWeek: RenewalInsight[];
+  priceIncreases: PriceIncreaseInsight[];
+}
+
+export interface RoiStats {
+  totalSavedUsd: string;
+  eventCount: number;
+  zombieArchivedCount: number;
 }

@@ -18,7 +18,10 @@ import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.CompanyRepository
 import com.saastracker.persistence.repository.EmailDeliveryRepository
 import com.saastracker.persistence.repository.IdentityProvider
+import com.saastracker.persistence.repository.NotificationReadRepository
+import com.saastracker.persistence.repository.PasswordResetRepository
 import com.saastracker.persistence.repository.RefreshTokenRepository
+import com.saastracker.persistence.repository.SubscriptionRepository
 import com.saastracker.persistence.repository.TeamInvitationRepository
 import com.saastracker.persistence.repository.UserRepository
 import com.saastracker.transport.email.EmailService
@@ -30,9 +33,13 @@ import com.saastracker.transport.http.request.AcceptInviteRequest
 import com.saastracker.transport.http.request.InviteMemberRequest
 import com.saastracker.transport.http.request.LoginRequest
 import com.saastracker.transport.http.request.RegisterRequest
-import java.math.BigDecimal
+import java.security.MessageDigest
 import java.time.Duration
 import java.util.UUID
+
+private val INVITATION_TTL = Duration.ofDays(2)
+private const val MAX_INVITATIONS_PER_DAY = 20
+private val PASSWORD_RESET_TTL = Duration.ofHours(1)
 
 data class AuthPayload(
     val accessToken: String,
@@ -52,7 +59,10 @@ class AuthService(
     private val invitationRepository: TeamInvitationRepository,
     private val auditLogRepository: AuditLogRepository,
     private val emailDeliveryRepository: EmailDeliveryRepository,
+    private val subscriptionRepository: SubscriptionRepository,
     private val refreshTokenRepository: RefreshTokenRepository,
+    private val notificationReadRepository: NotificationReadRepository,
+    private val passwordResetRepository: PasswordResetRepository,
     private val passwordService: PasswordService,
     private val jwtService: JwtService,
     private val emailService: EmailService,
@@ -75,8 +85,9 @@ class AuthService(
             name = request.companyName.trim(),
             domain = request.companyDomain.trim().lowercase(),
             stripeCustomerId = null,
-            subscriptionStatus = CompanySubscriptionStatus.TRIAL,
-            trialEndsAt = now.plus(Duration.ofDays(14)),
+            subscriptionStatus = CompanySubscriptionStatus.TRIAL, // kept for Stripe compat, unused
+            trialEndsAt = now.plus(Duration.ofDays(14)),         // kept in schema, unused
+            planTier = com.saastracker.domain.model.PlanTier.FREE,
             monthlyBudget = request.monthlyBudget?.toBigDecimalOrNull(),
             employeeCount = null,
             settings = "{}",
@@ -177,6 +188,11 @@ class AuthService(
             return AppResult.Failure(AppError.Conflict("User already exists in company"))
         }
 
+        val sentToday = invitationRepository.countCreatedSince(currentUser.companyId, now.minus(Duration.ofDays(1)))
+        if (sentToday >= MAX_INVITATIONS_PER_DAY) {
+            return AppResult.Failure(AppError.Forbidden("Daily invitation limit of $MAX_INVITATIONS_PER_DAY reached. Try again tomorrow."))
+        }
+
         val previousInvite = invitationRepository.findByCompanyAndEmail(currentUser.companyId, email)
         val invitation = when {
             previousInvite == null -> invitationRepository.create(
@@ -187,7 +203,7 @@ class AuthService(
                     email = email,
                     role = request.role,
                     token = generateInvitationToken(),
-                    expiresAt = now.plus(Duration.ofDays(7)),
+                    expiresAt = now.plus(INVITATION_TTL),
                     acceptedAt = null,
                     createdAt = now
                 )
@@ -196,7 +212,7 @@ class AuthService(
                 previousInvite.copy(
                     invitedByUserId = currentUser.id,
                     role = request.role,
-                    expiresAt = now.plus(Duration.ofDays(7))
+                    expiresAt = now.plus(INVITATION_TTL)
                 )
             )
             else -> invitationRepository.update(
@@ -204,7 +220,7 @@ class AuthService(
                     invitedByUserId = currentUser.id,
                     role = request.role,
                     token = generateInvitationToken(),
-                    expiresAt = now.plus(Duration.ofDays(7)),
+                    expiresAt = now.plus(INVITATION_TTL),
                     acceptedAt = null,
                     createdAt = now
                 )
@@ -255,7 +271,7 @@ class AuthService(
         val refreshed = invitation.copy(
             invitedByUserId = currentUser.id,
             token = if (expired) generateInvitationToken() else invitation.token,
-            expiresAt = now.plus(Duration.ofDays(7)),
+            expiresAt = now.plus(INVITATION_TTL),
             createdAt = if (expired) now else invitation.createdAt
         )
         val updatedInvitation = invitationRepository.update(refreshed)
@@ -405,6 +421,165 @@ class AuthService(
         return AppResult.Success(updated)
     }
 
+    /**
+     * GDPR Art. 20 — Right to data portability.
+     *
+     * Returns a structured JSON-compatible map of all personal data held for the user.
+     */
+    fun exportPersonalData(userId: UUID): AppResult<Map<String, Any?>> {
+        val user = userRepository.findById(userId)
+            ?: return AppResult.Failure(AppError.NotFound("User not found"))
+        val company = companyRepository.findById(user.companyId)
+
+        // GDPR Art. 15 — all subscriptions (active + archived) created by this user
+        val allSubs = subscriptionRepository.listByCompany(user.companyId) +
+            subscriptionRepository.listArchivedByCompany(user.companyId)
+        val subscriptions = allSubs
+            .filter { it.createdById == userId }
+            .map { sub ->
+                mapOf(
+                    "id" to sub.id.toString(),
+                    "vendorName" to sub.vendorName,
+                    "vendorUrl" to sub.vendorUrl,
+                    "category" to sub.category,
+                    "amount" to sub.amount.toPlainString(),
+                    "currency" to sub.currency,
+                    "billingCycle" to sub.billingCycle.name,
+                    "renewalDate" to sub.renewalDate.toString(),
+                    "status" to sub.status.name,
+                    "archivedAt" to sub.archivedAt?.toString(),
+                    "createdAt" to sub.createdAt.toString()
+                )
+            }
+
+        // GDPR Art. 15 — all email delivery logs addressed to this user (no limit)
+        val emailLogs = emailDeliveryRepository.listByRecipientEmail(user.email)
+            .map { log ->
+                mapOf(
+                    "id" to log.id.toString(),
+                    "templateType" to log.templateType.name,
+                    "status" to log.status.name,
+                    "providerMessageId" to log.providerMessageId,
+                    "errorMessage" to log.errorMessage,
+                    "createdAt" to log.createdAt.toString()
+                )
+            }
+
+        val export = mapOf(
+            "exportedAt" to clock.nowInstant().toString(),
+            "profile" to mapOf(
+                "id" to user.id.toString(),
+                "email" to user.email,
+                "name" to user.name,
+                "role" to user.role.name,
+                "isActive" to user.isActive,
+                "createdAt" to user.createdAt.toString(),
+                "lastLoginAt" to user.lastLoginAt?.toString()
+            ),
+            "company" to company?.let {
+                mapOf(
+                    "id" to it.id.toString(),
+                    "name" to it.name,
+                    "domain" to it.domain,
+                    "subscriptionStatus" to it.subscriptionStatus.name,
+                    "createdAt" to it.createdAt.toString()
+                )
+            },
+            "subscriptions" to subscriptions,
+            "emailDeliveryLogs" to emailLogs,
+            "auditLog" to auditLogRepository.listByCompany(user.companyId)
+                .filter { it.userId == userId }
+                .map { entry ->
+                    mapOf(
+                        "action" to entry.action.name,
+                        "entityType" to entry.entityType.name,
+                        "createdAt" to entry.createdAt.toString()
+                    )
+                }
+        )
+        return AppResult.Success(export)
+    }
+
+    /**
+     * Initiates a password reset flow.
+     *
+     * Always returns Success to prevent email-enumeration attacks — the caller
+     * cannot distinguish between "user exists" and "user not found".
+     */
+    fun requestPasswordReset(email: String): AppResult<Unit> {
+        val user = userRepository.findByEmail(email.trim().lowercase())
+        if (user == null || !user.isActive) return AppResult.Success(Unit)
+
+        val now = clock.nowInstant()
+        val rawToken = generateSecureToken()
+        val tokenHash = hashToken(rawToken)
+        passwordResetRepository.deleteExpiredForUser(user.id)
+        passwordResetRepository.create(user.id, tokenHash, now.plus(PASSWORD_RESET_TTL))
+
+        runCatching {
+            emailService.sendPasswordResetEmail(user.email, rawToken)
+        }.onFailure { ex ->
+            // Log but don't surface — the user always sees 200
+            org.slf4j.LoggerFactory.getLogger(AuthService::class.java)
+                .warn("Failed to send password reset email userId={}", user.id, ex)
+        }
+        return AppResult.Success(Unit)
+    }
+
+    /** Validates the reset token and replaces the user's password. */
+    fun resetPassword(token: String, newPassword: String): AppResult<Unit> {
+        val tokenHash = hashToken(token)
+        val record = passwordResetRepository.findByHash(tokenHash)
+            ?: return AppResult.Failure(AppError.Validation("Invalid or expired reset token"))
+        if (record.usedAt != null)
+            return AppResult.Failure(AppError.Validation("Reset token already used"))
+        if (record.expiresAt.isBefore(clock.nowInstant()))
+            return AppResult.Failure(AppError.Validation("Reset token expired"))
+
+        val user = userRepository.findById(record.userId)
+            ?: return AppResult.Failure(AppError.NotFound("User not found"))
+        if (!user.isActive)
+            return AppResult.Failure(AppError.Forbidden("User is inactive"))
+
+        userRepository.update(user.copy(passwordHash = passwordService.hash(newPassword)))
+        passwordResetRepository.markUsed(record.id)
+        refreshTokenRepository.revokeAllForUser(user.id) // invalidate all active sessions
+        return AppResult.Success(Unit)
+    }
+
+    /**
+     * GDPR Art. 17 — Right to erasure.
+     *
+     * If the user is the last member of their company, the whole company record is
+     * deleted (all related data cascades via DB foreign keys).  Otherwise, the user's
+     * personal data is anonymised in-place so that audit and billing records remain
+     * internally consistent while all PII is removed.
+     */
+    fun deleteAccount(userId: UUID): AppResult<Unit> {
+        val user = userRepository.findById(userId)
+            ?: return AppResult.Failure(AppError.NotFound("User not found"))
+
+        refreshTokenRepository.revokeAllForUser(userId)
+        notificationReadRepository.clearForUser(userId)
+
+        val remainingMembers = userRepository.listByCompany(user.companyId)
+            .filter { it.id != userId }
+
+        if (remainingMembers.isEmpty()) {
+            companyRepository.delete(user.companyId) // cascades all company data
+        } else {
+            val anonymised = user.copy(
+                email = "deleted-$userId@gdpr.invalid",
+                name = "Deleted User",
+                passwordHash = "",
+                isActive = false
+            )
+            userRepository.update(anonymised)
+        }
+
+        return AppResult.Success(Unit)
+    }
+
     private fun sendInviteEmail(invitation: TeamInvitation): EmailDeliveryResult {
         val now = clock.nowInstant()
         val result = runCatching {
@@ -429,7 +604,7 @@ class AuthService(
                 },
                 providerMessageId = result.providerMessageId,
                 providerStatusCode = result.providerStatusCode,
-                providerResponse = result.providerResponse,
+                providerResponse = null, // GDPR: full provider body may contain PII; only status/id are retained
                 errorMessage = if (result.status == EmailDeliveryStatus.FAILED) result.message else null,
                 createdAt = now
             )
@@ -440,6 +615,14 @@ class AuthService(
 
 private fun generateInvitationToken(): String =
     UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "")
+
+private fun generateSecureToken(): String =
+    UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "")
+
+private fun hashToken(token: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(token.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
 private fun User.toPrincipal(): PrincipalUser = PrincipalUser(
     userId = id,
