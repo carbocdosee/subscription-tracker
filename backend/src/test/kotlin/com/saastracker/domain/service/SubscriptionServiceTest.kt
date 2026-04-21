@@ -14,6 +14,7 @@ import com.saastracker.persistence.repository.AuditLogRepository
 import com.saastracker.persistence.repository.ClockProvider
 import com.saastracker.persistence.repository.CurrencyRateRepository
 import com.saastracker.persistence.repository.IdentityProvider
+import com.saastracker.persistence.repository.SavingsEventRepository
 import com.saastracker.persistence.repository.SubscriptionCommentRepository
 import com.saastracker.persistence.repository.SubscriptionPaymentRepository
 import com.saastracker.persistence.repository.SubscriptionRepository
@@ -45,6 +46,7 @@ class SubscriptionServiceTest {
     private val vendorLogoService = VendorLogoService()
     private val idProvider = mockk<IdentityProvider>(relaxed = true)
     private val clockProvider = mockk<ClockProvider>(relaxed = true)
+    private val savingsEventRepository = mockk<SavingsEventRepository>(relaxed = true)
 
     private val service = SubscriptionService(
         subscriptionRepository = subscriptionRepository,
@@ -54,7 +56,8 @@ class SubscriptionServiceTest {
         currencyService = currencyService,
         vendorLogoService = vendorLogoService,
         idProvider = idProvider,
-        clockProvider = clockProvider
+        clockProvider = clockProvider,
+        savingsEventRepository = savingsEventRepository
     )
 
     init {
